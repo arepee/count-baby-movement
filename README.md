@@ -39,7 +39,9 @@ hourly scheduler. One user, protected by a 4-digit code.
    1. Open the app URL in **Safari**.
    2. Share → **Add to Home Screen**.
    3. Open it **from the home screen icon** (not from Safari).
-   4. Enter the code.
+   4. Enter the code. On this first launch the app sets itself up: it takes the
+      phone's timezone and starts tracking from now (nothing before this counts).
+      Until then the reminder cron does nothing (its log says `"not-set-up"`).
    5. Tap **Enable notifications** and allow. Use "Send test" in Settings to confirm.
 
    Notifications on iOS only work in the home-screen app, never in a Safari tab.
@@ -50,17 +52,27 @@ hourly scheduler. One user, protected by a 4-digit code.
   07:30–08:30, 08:30–09:30, …). The sleep window (default 23:30–07:30) is a single slot.
 - GitHub Actions calls `/api/cron` every 30 minutes. When an hour has ended and isn't
   logged, you get a notification. If it's still not logged ~an hour later, you get
-  another ("Still waiting: N hours to log"). It keeps nagging until the backlog is clear.
+  another ("Still waiting: N hours to log"), except in the last 15 minutes of the
+  current hour, when the next "new hour" reminder is about to arrive anyway. It keeps
+  nagging until the backlog is clear.
 - No notifications during the sleep window. On waking you get one prompt to log the
   whole night as a single entry.
 - The Log screen makes you clear past hours oldest first. For each one: enter counts and
-  **Save**, or tap **Didn't track** to skip it. At most the last 72 open hours are shown.
-- History lets you edit or delete entries and export CSV.
+  **Save**, or tap **Didn't track** to skip it. Only the last 72 slots (hours, with a
+  night counting as one) are ever asked about; anything older is ignored.
+- History lets you edit or delete entries and export CSV. A night entry counts toward
+  the day you woke up (in History and in the CSV `date` column).
 
 ## Settings
 
 In the app's Settings screen: sleep start/end, timezone (defaults to the phone's),
-notifications on/off for this device, "Send test", and log out.
+notifications on/off for this device, "Send test", **Restart tracking from now**
+(forgets the open backlog and starts counting from the current hour, using the
+phone's timezone; saved entries are kept), and log out.
+
+**Login lockout:** after 5 wrong codes in a row, login is locked for 5 minutes; each
+further wrong code after that doubles the lock (up to 60 minutes). A correct code
+resets it. To clear it by hand: `update settings set failed_logins = 0, locked_until = null;`
 
 ## Local development
 
@@ -99,5 +111,9 @@ Other scripts: `npm run vapid` (new secrets), `npm run db:migrate` (apply schema
 - **Private repo Actions minutes.** Every-30-min runs use ~1440 billed minutes/month
   (GitHub Free includes 2000 for private repos; public repos are free). Change the cron
   in `.github/workflows/cron.yml` to `0 * * * *` to halve it.
+- **Test works on one device but not after changing VAPID keys** (log shows `403`
+  / `BadJwtToken`): the device subscribed with the old keys; Disable then Enable
+  notifications on it.
+- **Cron log shows `"push-not-configured"`.** The VAPID env vars are missing in Vercel.
 - **Workflow fails with 401.** `CRON_SECRET` differs between GitHub and Vercel, or
   Vercel wasn't redeployed after setting it.

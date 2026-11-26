@@ -1,6 +1,6 @@
 // Request-body validation helpers. Each returns either a value or an error string.
 
-import type { EntryUpdate, SettingsInput } from "./types";
+import type { EntryUpdate, SettingsInput, SetupInput } from "./types";
 import { isValidTimeZone, parseHHMM } from "./tz";
 
 export const MAX_COUNT = 999;
@@ -41,6 +41,12 @@ export function parseSettings(body: unknown): Result<SettingsInput> {
   if (parseHHMM(sleepEnd) === null) return { ok: false, error: '"sleepEnd" must be HH:MM (24h)' };
   if (!isValidTimeZone(timezone)) return { ok: false, error: '"timezone" must be a valid IANA time zone' };
   return { ok: true, value: { sleepStart: sleepStart as string, sleepEnd: sleepEnd as string, timezone } };
+}
+
+export function parseSetup(body: unknown): Result<SetupInput> {
+  if (!isObj(body)) return { ok: false, error: "Body must be a JSON object" };
+  if (!isValidTimeZone(body.timezone)) return { ok: false, error: '"timezone" must be a valid IANA time zone' };
+  return { ok: true, value: { timezone: body.timezone } };
 }
 
 export type PushSub = { endpoint: string; p256dh: string; auth: string };

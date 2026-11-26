@@ -54,6 +54,33 @@ describe("decideReminder", () => {
     expect(d.notify && d.payload.body).toBe("Still waiting: 1 hour to log");
   });
 
+  it("re-reminds only when the in-progress slot isn't about to end", () => {
+    // pending 2:30-3:30 PM IST, notified at 3:31 PM; current slot 4:30-5:30 PM IST (11:00-12:00Z)
+    const mk = (now: string) =>
+      decideReminder(
+        input(now, "2026-11-26T09:10:00Z", {
+          pending: [{ start: "2026-11-26T09:00:00.000Z", end: "2026-11-26T10:00:00.000Z", isSleep: false }],
+          lastNotifiedSlot: "2026-11-26T09:00:00Z",
+          lastNotifiedAt: "2026-11-26T10:01:00Z",
+        }),
+      );
+    expect(mk("2026-11-26T11:44:00Z").reason).toBe("re-remind"); // ends in 16 min
+    expect(mk("2026-11-26T11:45:00Z")).toEqual({ notify: false, reason: "new-slot-soon" }); // ends in 15 min
+    expect(mk("2026-11-26T11:55:00Z")).toEqual({ notify: false, reason: "new-slot-soon" });
+    expect(mk("2026-11-26T10:30:00Z").reason).toBe("recently-notified"); // 29 min after the last push
+  });
+
+  it("still re-reminds just before the sleep window (no new-slot push follows until morning)", () => {
+    // current slot 10:30-11:30 PM IST (17:00-18:00Z), then night
+    const d = decideReminder(
+      input("2026-11-26T17:50:00Z", "2026-11-26T15:10:00Z", {
+        lastNotifiedSlot: "2026-11-26T16:00:00Z",
+        lastNotifiedAt: "2026-11-26T16:40:00Z",
+      }),
+    );
+    expect(d.reason).toBe("re-remind");
+  });
+
   it("notifies again when a newer slot becomes pending", () => {
     const d = decideReminder(
       input("2026-11-26T11:05:00Z", "2026-11-26T09:10:00Z", {

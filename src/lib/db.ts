@@ -33,6 +33,10 @@ create table if not exists push_subscriptions (
   enabled boolean not null default true,
   created_at timestamptz not null default now()
 );
+-- Columns added after the first release (idempotent for existing databases).
+alter table settings add column if not exists initialized boolean not null default false;
+alter table settings add column if not exists failed_logins int not null default 0;
+alter table settings add column if not exists locked_until timestamptz;
 insert into settings (id) values (1) on conflict (id) do nothing;
 `;
 
@@ -90,7 +94,12 @@ export function rowToEntry(r: Row): Entry {
 
 // ---------- Settings ----------
 
-export type SettingsRecord = Settings & { lastNotifiedSlot: string | null; lastNotifiedAt: string | null };
+export type SettingsRecord = Settings & {
+  lastNotifiedSlot: string | null;
+  lastNotifiedAt: string | null;
+  failedLogins: number;
+  lockedUntil: string | null;
+};
 
 function rowToSettings(r: Row): SettingsRecord {
   return {
@@ -98,8 +107,11 @@ function rowToSettings(r: Row): SettingsRecord {
     sleepEnd: String(r.sleep_end),
     timezone: String(r.timezone),
     trackingStart: isoOf(r.tracking_start),
+    initialized: r.initialized === true,
     lastNotifiedSlot: isoOrNull(r.last_notified_slot),
     lastNotifiedAt: isoOrNull(r.last_notified_at),
+    failedLogins: Number(r.failed_logins ?? 0),
+    lockedUntil: isoOrNull(r.locked_until),
   };
 }
 
@@ -118,16 +130,54 @@ export async function updateSettings(s: SettingsInput): Promise<SettingsRecord> 
   return rowToSettings(rows[0]);
 }
 
+/**
+ * First-run setup / "Restart tracking from now": set the timezone, start tracking at
+ * the current time and mark the app initialized. Clears the reminder bookkeeping so
+ * the first ended slot after this gets a fresh notification.
+ */
+export async function setupTracking(timezone: string): Promise<SettingsRecord> {
+  await getSettings(); // make sure the row exists
+  const rows = await q(
+    `update settings set timezone = $1, tracking_start = now(), initialized = true,
+       last_notified_slot = null, last_notified_at = null
+     where id = 1 returning *`,
+    [timezone],
+  );
+  return rowToSettings(rows[0]);
+}
+
+/**
+ * Record a failed login. Returns the updated record; `lockedUntil` is set (by the DB
+ * clock) once `failedLogins` reaches LOCKOUT_THRESHOLD, see lockoutMinutes().
+ */
+export async function recordFailedLogin(threshold: number, baseMinutes: number, maxMinutes: number): Promise<SettingsRecord> {
+  await getSettings();
+  const rows = await q(
+    `update settings set failed_logins = failed_logins + 1,
+       locked_until = case when failed_logins + 1 >= $1
+         then now() + least($3::int, $2::int * power(2, least(failed_logins + 1 - $1, 10))::int) * interval '1 minute'
+         else locked_until end
+     where id = 1 returning *`,
+    [threshold, baseMinutes, maxMinutes],
+  );
+  return rowToSettings(rows[0]);
+}
+
+export async function resetFailedLogins(): Promise<void> {
+  await q("update settings set failed_logins = 0, locked_until = null where id = 1 and (failed_logins <> 0 or locked_until is not null)");
+}
+
 export async function setLastNotified(slotStart: string, at: Date): Promise<void> {
   await q("update settings set last_notified_slot = $1, last_notified_at = $2 where id = 1", [slotStart, at.toISOString()]);
 }
 
 /** Strip internal fields before sending settings to the client. */
-export const publicSettings = ({ sleepStart, sleepEnd, timezone, trackingStart }: SettingsRecord): Settings => ({
+export const publicSettings = ({ sleepStart, sleepEnd, timezone, trackingStart, initialized }: SettingsRecord): Settings => ({
   sleepStart,
   sleepEnd,
   timezone,
   trackingStart,
+  initialized,
 });
 
 // ---------- Entries ----------
@@ -172,9 +222,9 @@ export async function listEntries(from?: Date | null, to?: Date | null): Promise
   return rows.map(rowToEntry);
 }
 
-/** Slot ranges of entries ending after `since` (for pending computation). */
-export async function entryRangesSince(since: string): Promise<{ slotStart: string; slotEnd: string }[]> {
-  const rows = await q("select slot_start, slot_end from entries where slot_end > $1", [since]);
+/** Slot ranges of entries overlapping [from, to) (for pending computation). */
+export async function entryRangesBetween(from: string, to: string): Promise<{ slotStart: string; slotEnd: string }[]> {
+  const rows = await q("select slot_start, slot_end from entries where slot_end > $1 and slot_start < $2", [from, to]);
   return rows.map((r) => ({ slotStart: isoOf(r.slot_start), slotEnd: isoOf(r.slot_end) }));
 }
 

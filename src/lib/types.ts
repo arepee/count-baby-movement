@@ -19,7 +19,8 @@ export type Settings = {
   sleepStart: string; // "HH:MM"
   sleepEnd: string; // "HH:MM"
   timezone: string; // IANA, e.g. "Asia/Kolkata"
-  trackingStart: string; // ISO
+  trackingStart: string; // ISO; pending slots start at the slot containing this
+  initialized: boolean; // false until POST /api/setup has run (first launch on the device)
 };
 
 /** Settings fields a client may change (PUT /api/settings). */
@@ -50,7 +51,18 @@ export type EntriesResponse = { entries: Entry[] };
 export type SettingsResponse = { settings: Settings };
 export type OkResponse = { ok: true };
 export type ErrorResponse = { error: string };
-export type PushTestResponse = { sent: number };
-export type CronResponse = { notified: boolean; reason: string; pending: number };
+export type PushTestResponse = { sent: number; failed: number; removed: number };
+export type CronResponse = {
+  notified: boolean;
+  reason: string;
+  pending: number;
+  sent?: number;
+  failed?: number;
+  removed?: number;
+  error?: string;
+};
+
+/** POST /api/setup body (first-run setup and "Restart tracking from now"). */
+export type SetupInput = { timezone: string };
 
 export type PushPayload = { title: string; body: string; url: string; tag: string };

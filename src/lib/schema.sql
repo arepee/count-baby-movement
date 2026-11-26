@@ -27,4 +27,8 @@ create table if not exists push_subscriptions (
   enabled boolean not null default true,
   created_at timestamptz not null default now()
 );
+-- Columns added after the first release (idempotent for existing databases).
+alter table settings add column if not exists initialized boolean not null default false;
+alter table settings add column if not exists failed_logins int not null default 0;
+alter table settings add column if not exists locked_until timestamptz;
 insert into settings (id) values (1) on conflict (id) do nothing;

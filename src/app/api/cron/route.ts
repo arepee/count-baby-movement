@@ -1,6 +1,6 @@
 import { setLastNotified } from "@/lib/db";
 import { handle, json } from "@/lib/http";
-import { sendToAll } from "@/lib/push";
+import { PushNotConfiguredError, sendToAll } from "@/lib/push";
 import { decideReminder } from "@/lib/reminders";
 import { safeEqual } from "@/lib/session";
 import { loadPending } from "@/lib/state";
@@ -17,6 +17,10 @@ async function run(req: Request): Promise<Response> {
   }
   const now = new Date();
   const { settings, pending } = await loadPending(now);
+  // Until the app has been opened once (POST /api/setup), tracking_start/timezone are
+  // placeholders: don't notify about a backlog that was never meant to be tracked.
+  if (!settings.initialized) return json<CronResponse>({ notified: false, reason: "not-set-up", pending: 0 });
+
   const decision = decideReminder({
     now,
     settings,
@@ -24,11 +28,28 @@ async function run(req: Request): Promise<Response> {
     lastNotifiedSlot: settings.lastNotifiedSlot,
     lastNotifiedAt: settings.lastNotifiedAt,
   });
-  if (decision.notify) {
-    await sendToAll(decision.payload);
-    await setLastNotified(decision.slotStart, now);
+  if (!decision.notify) return json<CronResponse>({ notified: false, reason: decision.reason, pending: pending.length });
+
+  // Push problems are reported in the (200) response and logs rather than as a 500,
+  // so the scheduler doesn't retry and nothing is double-sent.
+  let r;
+  try {
+    r = await sendToAll(decision.payload);
+  } catch (err) {
+    if (!(err instanceof PushNotConfiguredError)) throw err;
+    console.error("cron:", err.message);
+    return json<CronResponse>({ notified: false, reason: "push-not-configured", pending: pending.length, error: err.message });
   }
-  return json<CronResponse>({ notified: decision.notify, reason: decision.reason, pending: pending.length });
+  // Mark the slot as notified unless every delivery failed (then the next run retries,
+  // 30 minutes later). With no subscriptions there's nothing to retry.
+  const allFailed = r.failed > 0 && r.sent === 0;
+  if (!allFailed) await setLastNotified(decision.slotStart, now);
+  return json<CronResponse>({
+    notified: r.sent > 0,
+    reason: allFailed ? "push-failed" : decision.reason,
+    pending: pending.length,
+    ...r,
+  });
 }
 
 export const GET = handle(run);

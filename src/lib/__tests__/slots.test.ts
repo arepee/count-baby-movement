@@ -6,7 +6,10 @@ import {
   isInSleepWindow,
   isValidSlotStart,
   MAX_PENDING,
+  pendingCutoff,
   pendingSlots,
+  pendingWindowStart,
+  slotDayKey,
   slotContaining,
   slotsBetween,
   type SlotSettings,
@@ -222,6 +225,50 @@ describe("pendingSlots", () => {
     expect(ms(p[71].end)).toBeLessThanOrEqual(ms("2026-12-26T00:00:00Z"));
     expect(ms(p[0].start)).toBeLessThan(ms(p[1].start));
     expect(slotContaining("2026-12-26T00:00:00Z", IST).start).toBe(p[71].end);
+    expect(p[0].start).toBe(pendingCutoff("2026-12-26T00:00:00Z", IST));
+  });
+
+  it("older slots don't resurface after the most recent ones are logged", () => {
+    const now = "2026-12-26T00:00:00Z";
+    const s = { ...settings, trackingStart: "2026-11-01T00:00:00Z" };
+    const all = pendingSlots(now, s, new Set());
+    // Log the newest 50 of the 72: only the 22 older ones in the window remain.
+    const logged = new Set(all.slice(-50).map((x) => x.start));
+    const p = pendingSlots(now, s, logged);
+    expect(p).toEqual(all.slice(0, 22));
+    // Log everything in the window: nothing pending, even though older slots are unlogged.
+    expect(pendingSlots(now, s, new Set(all.map((x) => x.start)))).toEqual([]);
+  });
+
+  it("the cutoff counts logged slots too and moves forward as slots end", () => {
+    const s = { ...settings, trackingStart: "2026-11-01T00:00:00Z" };
+    const now1 = "2026-12-26T00:00:00Z";
+    const all = pendingSlots(now1, s, new Set());
+    const later = ms(slotContaining(now1, IST).end); // the in-progress slot (the night) has now ended
+    const p = pendingSlots(later, s, new Set(all.map((x) => x.start)));
+    expect(p).toHaveLength(1);
+    expect(p[0].start).toBe(all[71].end);
+    expect(pendingCutoff(later, IST)).toBe(all[1].start);
+  });
+
+  it("pending window starts at the later of the cutoff and the tracking-start slot", () => {
+    expect(pendingWindowStart(now, settings)).toBe("2026-11-26T03:00:00.000Z");
+    const old = { ...settings, trackingStart: "2026-01-01T00:00:00Z" };
+    expect(pendingWindowStart(now, old)).toBe(pendingCutoff(now, IST));
+  });
+
+  it("nothing is pending when tracking starts in the in-progress slot or later", () => {
+    expect(pendingSlots(now, { ...settings, trackingStart: "2026-11-26T06:10:00Z" }, new Set())).toEqual([]);
+    expect(pendingSlots(now, { ...settings, trackingStart: "2026-11-27T00:00:00Z" }, new Set())).toEqual([]);
+  });
+
+  it("the cutoff is exactly MAX_PENDING ended slots back (night counts as one)", () => {
+    const now2 = "2026-11-26T06:15:00Z";
+    const cutoff = pendingCutoff(now2, IST);
+    const slots = slotsBetween(cutoff, now2, IST).filter((x) => ms(x.end) <= ms(now2));
+    expect(slots).toHaveLength(MAX_PENDING);
+    expect(slots.filter((x) => x.isSleep).length).toBeGreaterThan(0);
+    expectTiling(slots);
   });
 
   it("includes the night slot once ended", () => {
@@ -243,6 +290,21 @@ describe("coveredStarts", () => {
   it("maps an aligned entry to exactly its slot", () => {
     const c = coveredStarts([{ slotStart: "2026-11-26T02:00:00Z", slotEnd: "2026-11-26T03:00:00Z" }], IST);
     expect([...c]).toEqual(["2026-11-26T02:00:00.000Z"]);
+  });
+});
+
+describe("slotDayKey", () => {
+  it("awake slots belong to the day they start", () => {
+    expect(slotDayKey(slotContaining("2026-11-26T17:30:00Z", IST), IST.timezone)).toBe("2026-11-26"); // 22:30-23:30
+    // 23:00-00:00 awake slot (sleep starts 01:00) is on the 26th, 00:00-01:00 on the 27th
+    const s = { ...IST, sleepStart: "01:00", sleepEnd: "09:00" };
+    expect(slotDayKey(slotContaining("2026-11-26T18:00:00Z", s), s.timezone)).toBe("2026-11-26");
+    expect(slotDayKey(slotContaining("2026-11-26T18:30:00Z", s), s.timezone)).toBe("2026-11-27");
+  });
+  it("a night slot belongs to the day it ends (wake day)", () => {
+    expect(slotDayKey(slotContaining("2026-11-25T18:00:00Z", IST), IST.timezone)).toBe("2026-11-26"); // 23:30 25th - 07:30 26th
+    const s = { ...IST, sleepStart: "01:00", sleepEnd: "09:00" };
+    expect(slotDayKey(slotContaining("2026-11-26T21:30:00Z", s), s.timezone)).toBe("2026-11-27"); // 01:00-09:00 27th
   });
 });
 

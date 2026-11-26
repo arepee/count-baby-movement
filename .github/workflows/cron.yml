@@ -32,8 +32,26 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Call /api/cron
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        # Retry only when the request never reached the server (DNS failure, connection
+        # refused, TLS handshake failure: curl exit 6/7/35). Never retry after a timeout or
+        # an HTTP error: the server may already have sent the push, and a retry would
+        # send it again.
         run: |
-          curl -fsS -X POST --max-time 30 \
-            --retry 3 --retry-delay 10 --retry-all-errors \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron"
+          for attempt in 1 2 3 4; do
+            if curl -fsS -X POST --connect-timeout 10 --max-time 30 \
+                -H "Authorization: Bearer $CRON_SECRET" \
+                "$APP_URL/api/cron"; then
+              echo
+              exit 0
+            else
+              rc=$?
+            fi
+            case "$rc" in
+              6|7|35) echo "Connection failed (curl exit $rc), attempt $attempt; retrying in 10s"; sleep 10 ;;
+              *) exit "$rc" ;;
+            esac
+          done
+          exit "$rc"

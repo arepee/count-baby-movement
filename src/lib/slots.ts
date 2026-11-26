@@ -9,7 +9,7 @@
 // cycle is tiled exactly, slots never overlap or leave gaps, even across DST.
 
 import type { Settings, Slot } from "./types";
-import { addDays, localDate, localToUtc, parseHHMM, type LocalDate } from "./tz";
+import { addDays, localDate, localDateKey, localToUtc, parseHHMM, type LocalDate } from "./tz";
 
 export type SlotSettings = Pick<Settings, "sleepStart" | "sleepEnd" | "timezone">;
 
@@ -110,8 +110,37 @@ export function coveredStarts(
 }
 
 /**
- * Ended slots (end <= now) from the slot containing `trackingStart` onward that
- * have no entry, oldest first, keeping only the most recent MAX_PENDING.
+ * Start of the MAX_PENDING-th most recent ended slot (end <= now), counting every
+ * slot whether logged or not. Nothing older than this is ever pending, so clearing
+ * the backlog can't make older slots resurface.
+ */
+export function pendingCutoff(now: Ms, s: SlotSettings): string {
+  const nowMs = toMs(now);
+  if (Number.isNaN(nowMs)) throw new Error("Invalid instant");
+  const ended: Slot[] = []; // newest first
+  for (let d = cycleDate(nowMs, s); ended.length < MAX_PENDING; d = addDays(d, -1)) {
+    const slots = cycleSlots(d, s);
+    for (let i = slots.length - 1; i >= 0 && ended.length < MAX_PENDING; i--) {
+      if (toMs(slots[i].end) <= nowMs) ended.push(slots[i]);
+    }
+  }
+  return ended[ended.length - 1].start;
+}
+
+/**
+ * Earliest slot start that can be pending: the later of pendingCutoff() and the
+ * slot containing trackingStart. Entries overlapping [this, now) are all that the
+ * pending computation needs.
+ */
+export function pendingWindowStart(now: Ms, s: SlotSettings & Pick<Settings, "trackingStart">): string {
+  const cutoff = pendingCutoff(now, s);
+  const tracking = slotContaining(s.trackingStart, s).start;
+  return toMs(tracking) > toMs(cutoff) ? tracking : cutoff;
+}
+
+/**
+ * Ended slots (end <= now) without an entry whose start is >= pendingWindowStart(),
+ * oldest first. At most MAX_PENDING by construction.
  */
 export function pendingSlots(
   now: Ms,
@@ -120,10 +149,17 @@ export function pendingSlots(
 ): Slot[] {
   const nowMs = toMs(now);
   const entered = new Set([...enteredStarts].map(slotKey));
-  const pending = slotsBetween(s.trackingStart, nowMs, s).filter(
-    (x) => toMs(x.end) <= nowMs && !entered.has(x.start),
-  );
-  return pending.slice(-MAX_PENDING);
+  const from = pendingWindowStart(nowMs, s);
+  if (toMs(from) >= nowMs) return [];
+  return slotsBetween(from, nowMs, s).filter((x) => toMs(x.end) <= nowMs && !entered.has(x.start));
+}
+
+/**
+ * "YYYY-MM-DD" local day a slot belongs to for day grouping (history, CSV): awake
+ * slots belong to the day they start, a night slot to the day it ENDS (the wake day).
+ */
+export function slotDayKey(slot: { start: Ms; end: Ms; isSleep: boolean }, timeZone: string): string {
+  return localDateKey(toMs(slot.isSleep ? slot.end : slot.start), timeZone);
 }
 
 // ---------- Formatting (client-safe) ----------

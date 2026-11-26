@@ -1,5 +1,4 @@
-import { formatTime } from "./slots";
-import { localDateKey } from "./tz";
+import { formatTime, slotDayKey } from "./slots";
 import type { Entry } from "./types";
 
 const cell = (v: string | number | boolean) => {
@@ -7,11 +6,14 @@ const cell = (v: string | number | boolean) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-/** CSV of entries (in the given order) with both UTC and local (timezone) times. */
+/**
+ * CSV of entries (in the given order) with both UTC and local (timezone) times.
+ * `date` is the day the entry belongs to: a night entry counts toward the day it ends (wake day).
+ */
 export function entriesToCsv(entries: Entry[], timeZone: string): string {
   const header = ["date", "start", "end", "type", "kicks", "rolls", "other", "skipped", "slot_start_utc", "slot_end_utc", "updated_at"];
   const rows = entries.map((e) => [
-    localDateKey(e.slotStart, timeZone),
+    slotDayKey({ start: e.slotStart, end: e.slotEnd, isSleep: e.isSleep }, timeZone),
     formatTime(e.slotStart, timeZone),
     formatTime(e.slotEnd, timeZone),
     e.isSleep ? "night" : "hour",

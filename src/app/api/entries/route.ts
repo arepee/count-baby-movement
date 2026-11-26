@@ -36,5 +36,9 @@ export const POST = handle(async (req: Request) => {
     return badRequest(`"slotStart" is not a slot boundary (nearest slot starts at ${slot.start})`);
   }
   if (new Date(slot.end).getTime() > Date.now()) return badRequest("This slot hasn't ended yet");
+  const first = slotContaining(settings.trackingStart, settings);
+  if (new Date(slot.start).getTime() < new Date(first.start).getTime()) {
+    return badRequest(`This slot is before tracking started (${first.start})`);
+  }
   return json<EntryResponse>({ entry: await upsertEntry(slot, counts.value) });
 });

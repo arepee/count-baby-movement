@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { entriesToCsv } from "../csv";
+import { lockMessage, lockoutMinutes, lockRemainingMinutes } from "../lockout";
 import { safeEqual, signSession, verifySession } from "../session";
 import { parseCounts, parseId, parseSettings, parseSubscription } from "../validate";
 
@@ -57,5 +58,26 @@ describe("csv", () => {
       "Asia/Kolkata",
     );
     expect(csv.split("\r\n")[1]).toBe("2026-11-26,2:30 PM,3:30 PM,hour,3,1,0,false,2026-11-26T09:00:00.000Z,2026-11-26T10:00:00.000Z,2026-11-26T10:01:00.000Z");
+  });
+  it("dates a night entry by the day it ends (wake day)", () => {
+    const csv = entriesToCsv(
+      [{ id: 2, slotStart: "2026-11-25T18:00:00.000Z", slotEnd: "2026-11-26T02:00:00.000Z", isSleep: true, kicks: 4, rolls: 0, other: 1, skipped: false, createdAt: "x", updatedAt: "2026-11-26T02:05:00.000Z" }],
+      "Asia/Kolkata",
+    );
+    expect(csv.split("\r\n")[1]).toBe("2026-11-26,11:30 PM,7:30 AM,night,4,0,1,false,2026-11-25T18:00:00.000Z,2026-11-26T02:00:00.000Z,2026-11-26T02:05:00.000Z");
+  });
+});
+
+describe("lockout", () => {
+  it("locks after 5 failures for 5 min, doubling up to 60", () => {
+    expect([1, 4, 5, 6, 7, 8, 9, 20, 1000].map(lockoutMinutes)).toEqual([0, 0, 5, 10, 20, 40, 60, 60, 60]);
+  });
+  it("remaining minutes round up and expire", () => {
+    const now = Date.parse("2026-11-26T10:00:00Z");
+    expect(lockRemainingMinutes(null, now)).toBe(0);
+    expect(lockRemainingMinutes("2026-11-26T09:59:00Z", now)).toBe(0);
+    expect(lockRemainingMinutes("2026-11-26T10:00:01Z", now)).toBe(1);
+    expect(lockRemainingMinutes("2026-11-26T10:04:30Z", now)).toBe(5);
+    expect(lockMessage(5)).toBe("Too many attempts. Try again in 5 min.");
   });
 });

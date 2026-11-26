@@ -31,11 +31,32 @@ Time is divided into **slots**, computed in the configured IANA `timezone`.
 - DST: compute with local wall-clock times converted to UTC; tolerate 23h/25h days
   (slots must never overlap and must tile time without gaps).
 
+### First run / tracking start
+`tracking_start` is the earliest point of interest. Until the app is set up
+(`settings.initialized = false`) the stored `tracking_start`/`timezone` are
+placeholders (the row is created by whichever request touches the DB first, which
+may be the GitHub cron days before the app is installed): nothing is pending and
+`/api/cron` replies `reason:"not-set-up"`. When the logged-in app sees
+`state.settings.initialized === false` it calls `POST /api/setup {timezone}` with
+the device's timezone, which sets `timezone`, `tracking_start = now()`,
+`initialized = true` (and clears the reminder bookkeeping). The same call backs the
+**Restart tracking from now** button in Settings; existing entries are kept, but
+no slot before the slot containing the new `tracking_start` can be pending or logged.
+
 ### Pending slots
-`tracking_start` (timestamptz, set on first DB init = now) is the earliest point
-of interest. Pending = every slot that has **ended** (`end <= now`), whose `start >=`
-the slot containing tracking_start, and that has no entry. Returned oldest first.
-Cap at most recent 72 pending slots (older ones are ignored).
+`cutoff` = start of the 72nd most recent **ended** slot (`end <= now`), counting
+every slot whether logged or not (the night counts as one slot). Pending = every
+ended slot with no entry whose `start >= max(cutoff, slot containing
+tracking_start)`. Returned oldest first, so at most 72. Because the cutoff counts
+logged slots too, clearing the backlog never makes older slots resurface; slots
+older than the window are simply ignored. Only entries overlapping
+`[max(cutoff, tracking slot), now)` are loaded to compute this.
+
+### Day attribution
+For grouping by day (History, CSV `date`, "today's totals"), an awake slot belongs
+to the local day it **starts**; a night (sleep) slot belongs to the local day it
+**ends**, i.e. the wake day (night 23:30 Wed – 07:30 Thu counts toward Thursday).
+Helper: `slotDayKey()` in `src/lib/slots.ts`.
 
 The UI requires clearing pending slots (oldest first) before showing the "current"
 state. Each pending slot can be answered with counts, or **skipped** (recorded
@@ -61,6 +82,7 @@ type Settings = {
   sleepEnd: string;    // "HH:MM"
   timezone: string;    // IANA, e.g. "Asia/Kolkata"
   trackingStart: string; // ISO
+  initialized: boolean;  // false until POST /api/setup (first run)
 };
 ```
 Shared types live in `src/lib/types.ts` (owned by backend agent; others import).
@@ -74,7 +96,10 @@ create table if not exists settings (
   timezone text not null default 'Asia/Kolkata',
   tracking_start timestamptz not null default now(),
   last_notified_slot timestamptz,       -- slot start most recently notified about
-  last_notified_at timestamptz
+  last_notified_at timestamptz,
+  initialized boolean not null default false, -- set by POST /api/setup
+  failed_logins int not null default 0,       -- consecutive failed logins
+  locked_until timestamptz                    -- login locked until (brute-force lockout)
 );
 create table if not exists entries (
   id serial primary key,
@@ -96,12 +121,21 @@ create table if not exists push_subscriptions (
   created_at timestamptz not null default now()
 );
 ```
+The last three settings columns were added later; `ensureSchema()` also runs
+`alter table settings add column if not exists ...` for each, so existing databases
+upgrade automatically (existing rows start as not initialized).
 
 ## Auth
 - `POST /api/login {code}` → compares to `APP_CODE` (constant-time). On success sets
   cookie `bm_session` = `<issuedAtMs>.<hmacSHA256(AUTH_SECRET, issuedAtMs)>`,
   httpOnly, secure (in prod), sameSite=lax, path=/, maxAge 400 days. Returns `{ok:true}`;
-  wrong code → 401 `{error}`. Basic throttle not required.
+  wrong code → 401 `{error}`.
+  **Lockout** (the code is only 4 digits): consecutive failures are counted in
+  `settings.failed_logins`. The 5th consecutive failure locks login for 5 min; each
+  further failure (made after the lock expires) doubles the lock (10, 20, 40 min),
+  capped at 60 min. A success resets the counter. While locked the code is not even
+  compared: 429 `{error:"Too many attempts. Try again in N min."}` (the failure that
+  triggers a lock also returns 429).
 - `POST /api/logout` clears cookie.
 - `src/middleware.ts`: everything requires a valid session EXCEPT `/login`,
   `/api/login`, `/api/cron`, `/manifest.webmanifest`, `/sw.js`, `/icons/*`,
@@ -112,27 +146,41 @@ create table if not exists push_subscriptions (
 ## API (all JSON; all require session except where noted)
 | Method & path | Body / query | Response |
 |---|---|---|
-| `GET /api/state` | — | `{ now, settings, pending: Slot[], current: Slot, recent: Entry[] }` — `current` is the slot containing now (in progress); `recent` = entries from last 7 days, newest first |
-| `POST /api/entries` | `{slotStart, kicks, rolls, other, skipped?}` | `{entry}`. Server recomputes the slot from `slotStart` + settings and rejects (400) if slotStart isn't a valid slot boundary or slot hasn't ended yet. Upsert on slot_start. |
+| `GET /api/state` | — | `{ now, settings, pending: Slot[], current: Slot, recent: Entry[] }` — `current` is the slot containing now (in progress); `recent` = entries from last 7 days, newest first; `pending` is `[]` while `settings.initialized` is false |
+| `POST /api/setup` | `{timezone}` | `{settings}`. First-run setup and "Restart tracking from now": validates the IANA timezone, sets it, `tracking_start = now()`, `initialized = true`. 400 on invalid timezone. |
+| `POST /api/entries` | `{slotStart, kicks, rolls, other, skipped?}` | `{entry}`. Server recomputes the slot from `slotStart` + settings and rejects (400) if slotStart isn't a valid slot boundary, the slot hasn't ended yet, or it starts before the slot containing `tracking_start`. Upsert on slot_start. |
 | `PATCH /api/entries/:id` | `{kicks, rolls, other, skipped?}` | `{entry}` |
 | `DELETE /api/entries/:id` | — | `{ok:true}` |
 | `GET /api/entries?from=ISO&to=ISO` | — | `{entries: Entry[]}` (history, newest first) |
 | `GET /api/settings` / `PUT /api/settings` | `{sleepStart, sleepEnd, timezone}` | `{settings}`; validate HH:MM and timezone via `Intl.DateTimeFormat` |
 | `POST /api/push/subscribe` | `PushSubscriptionJSON` | `{ok:true}` (upsert, enabled=true) |
 | `POST /api/push/unsubscribe` | `{endpoint}` | `{ok:true}` (delete) |
-| `POST /api/push/test` | — | sends a test push to all subscriptions; `{sent:n}` |
-| `GET or POST /api/cron` | header `Authorization: Bearer $CRON_SECRET` (NO session) | `{notified:boolean, reason, pending:n}` |
-| `GET /api/export.csv` | — | CSV of all entries |
+| `POST /api/push/test` | — | sends a test push to all subscriptions; `{sent, failed, removed}`; 503 `{error}` if VAPID keys are missing |
+| `GET or POST /api/cron` | header `Authorization: Bearer $CRON_SECRET` (NO session) | `{notified:boolean, reason, pending:n, sent?, failed?, removed?, error?}` |
+| `GET /api/export.csv` | — | CSV of all entries; `date` column = the day the entry belongs to (night → wake day) |
 
 ## Reminder logic (`/api/cron`, called every 30 min by GitHub Actions)
+0. If not set up (`initialized = false`) → do nothing (`reason:"not-set-up"`).
 1. If now is inside the sleep window → do nothing (`reason:"sleeping"`).
-2. Compute pending slots. If none → nothing.
+2. Compute pending slots. If none → nothing (`"nothing-pending"`).
 3. Let `latest` = most recent pending slot. If `latest.start != last_notified_slot`
-   → notify ("Log baby movement for 2:30–3:30 PM" — if >1 pending: "N hours to log, starting …"; for the sleep slot: "Good morning — log movement for the night").
-   Else if pending exists and `last_notified_at` older than 55 min → re-remind
-   ("Still waiting: N hour(s) to log").
-4. Update last_notified_slot/at. Delete subscriptions that return 404/410.
+   → notify (`"new-slot"`: "Log baby movement for 2:30–3:30 PM" — if >1 pending: "N hours to log, starting …"; for the sleep slot: "Good morning — log movement for the night").
+   Else re-remind (`"re-remind"`: "Still waiting: N hour(s) to log") only if
+   `last_notified_at` is at least 55 min ago (else `"recently-notified"`) AND the
+   in-progress slot does not end within the next 15 min (else `"new-slot-soon"`:
+   a new-slot push follows at the next run, so this avoids a double buzz). Exception:
+   if the in-progress slot is followed by the sleep window, the re-remind is sent
+   anyway (no new-slot push comes until morning).
+4. Send to all subscriptions, then update last_notified_slot/at — unless every
+   delivery failed (`reason:"push-failed"`; the next run retries). Subscriptions that
+   return 404/410 are deleted; other failures (e.g. Apple 403 `BadJwtToken` after a
+   VAPID key change) are logged and kept. Missing VAPID keys →
+   `reason:"push-not-configured"`. Push problems never produce a 500.
 Push payload JSON: `{title, body, url:"/", tag:"bm-reminder"}`.
+
+The workflow (`.github/workflows/cron.yml`) retries only when curl could not reach
+the server (DNS / connection refused / TLS handshake), never after a timeout or HTTP
+error, since the server may already have sent the push.
 
 ## Front end (utilitarian)
 Single main screen `/`, plus `/history`, `/settings`, `/login`. No decorative
@@ -151,16 +199,21 @@ respects dark mode via `prefers-color-scheme`. Bottom nav: Log · History · Set
   "Add to Home Screen first" if `navigator.standalone` false on iOS).
 - Refetch state on `visibilitychange` → visible, and every 60s while visible.
 
-**History**: grouped by local day (settings timezone), each day shows totals and a
+**History**: grouped by local day (settings timezone; night → wake day, see "Day
+attribution"), each day shows totals and a
 row per slot (time label, K/R/O counts, "skipped" marker); tap row to edit
 (steppers) or delete. Load last 14 days, "Load more". Link to export CSV.
 
 **Settings**: sleep start/end (`<input type="time">`), timezone (prefilled from
 `Intl.DateTimeFormat().resolvedOptions().timeZone`, select or text), Save.
 Notifications section: status for this device, Enable/Disable, "Send test".
-Logout button.
+**Restart tracking from now** (confirm first; calls `POST /api/setup` with the device
+timezone). Logout button.
 
-**Login**: 4-digit numeric input (`inputmode="numeric"`, `autocomplete="one-time-code"`), autosubmits on 4 digits.
+**First run**: when `state.settings.initialized` is false, the app calls
+`POST /api/setup {timezone: <device tz>}` automatically, then refetches state.
+
+**Login**: 4-digit numeric input (`inputmode="numeric"`, `autocomplete="one-time-code"`), autosubmits on 4 digits. Shows the server's error text (including the 429 lockout message).
 
 ## PWA
 - `src/app/manifest.ts` (name "Baby Movement", short_name "Kicks", display
