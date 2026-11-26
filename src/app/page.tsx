@@ -9,7 +9,6 @@ import {
   entryDayKey,
   formatDuration,
   formatSlotLabel,
-  formatSlotRange,
   formatTime,
   sumTotals,
 } from "@/client/format";
@@ -331,34 +330,32 @@ function CaughtUp({
 
   return (
     <>
+      {/* The slot itself is labelled on the Right now card above; here just when it can be logged. */}
       <div className="card">
-        <div className="big-status">All caught up</div>
         <div>
-          <p className="muted small">{cur.isSleep ? "Night (sleep window)" : "This hour"}</p>
-          <p className="slot-label">{formatSlotRange(cur, tz)}</p>
+          <div className="big-status">All caught up</div>
           <p className="muted">
-            {cur.isSleep ? "Log the night after " : "Ready to log in "}
+            {cur.isSleep ? "Log the night after " : "Log this hour in "}
             <span className="tabular">
               {cur.isSleep ? formatTime(cur.end, tz) : formatDuration(remainingMs)}
             </span>
           </p>
         </div>
-      </div>
-
-      <div className="card">
-        <h2>Today</h2>
-        <div className="totals">
-          <div>
-            <div className="num">{totals.kicks}</div>
-            <div className="lbl">Kicks</div>
-          </div>
-          <div>
-            <div className="num">{totals.rolls}</div>
-            <div className="lbl">Rolls</div>
-          </div>
-          <div>
-            <div className="num">{totals.other}</div>
-            <div className="lbl">Other</div>
+        <div>
+          <h2 className="sub-head">Today</h2>
+          <div className="totals">
+            <div>
+              <div className="num">{totals.kicks}</div>
+              <div className="lbl">Kicks</div>
+            </div>
+            <div>
+              <div className="num">{totals.rolls}</div>
+              <div className="lbl">Rolls</div>
+            </div>
+            <div>
+              <div className="num">{totals.other}</div>
+              <div className="lbl">Other</div>
+            </div>
           </div>
         </div>
       </div>

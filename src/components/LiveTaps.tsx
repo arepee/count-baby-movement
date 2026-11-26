@@ -246,7 +246,10 @@ export default function LiveTaps({
         <p className="muted small live-last" aria-live="polite">
           {last ? (
             <>
-              Last movement {formatAgo(last.at, nowMs, tz)} · {tapKindLabel(last.kind)}
+              Last movement{" "}
+              <span className="nowrap">
+                {formatAgo(last.at, nowMs, tz)} · {tapKindLabel(last.kind)}
+              </span>
             </>
           ) : (
             "No movements tapped yet today"
