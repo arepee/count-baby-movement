@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "@/client/api";
 import {
   dayKey,
+  deviceTimezone,
+  entryDayKey,
   formatDuration,
   formatSlotLabel,
   formatSlotRange,
@@ -26,12 +28,30 @@ export default function LogPage() {
   const [skew, setSkew] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const reqId = useRef(0);
+  // First run: initialise tracking (timezone + tracking_start). Shared promise so
+  // overlapping loads don't POST twice; cleared on failure so Retry can redo it.
+  const setupPromise = useRef<Promise<unknown> | null>(null);
 
   const load = useCallback(async () => {
     const id = ++reqId.current;
     try {
-      const s = await api<StateResponse>("/api/state");
+      let s = await api<StateResponse>("/api/state");
       if (id !== reqId.current) return; // a newer request superseded this one
+      if (s.settings.initialized === false) {
+        if (!setupPromise.current) {
+          setupPromise.current = api("/api/setup", {
+            method: "POST",
+            body: { timezone: deviceTimezone() },
+          }).catch((e: unknown) => {
+            setupPromise.current = null;
+            throw e;
+          });
+        }
+        await setupPromise.current;
+        if (id !== reqId.current) return;
+        s = await api<StateResponse>("/api/state");
+        if (id !== reqId.current) return;
+      }
       setData(s);
       setSkew(new Date(s.now).getTime() - Date.now());
       setNowMs(Date.now());
@@ -208,7 +228,8 @@ function CaughtUp({
   nowMs: number;
 }) {
   const today = dayKey(new Date(nowMs), tz);
-  const todays = data.recent.filter((e) => dayKey(e.slotStart, tz) === today);
+  // The night counts toward the day it ends (wake-up day).
+  const todays = data.recent.filter((e) => entryDayKey(e, tz) === today);
   const totals = sumTotals(todays);
   const cur = data.current;
 
@@ -248,9 +269,9 @@ function CaughtUp({
 
       {data.recent.length > 0 && (
         <div className="card">
-          <div className="day-head">
+          <div className="card-head">
             <h2>Recent</h2>
-            <Link href="/history" className="small">
+            <Link href="/history" className="head-link">
               History
             </Link>
           </div>

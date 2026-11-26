@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "@/client/api";
-import { formatDayHeading, formatSlotLabel, formatSlotRange, groupByDay, sumTotals } from "@/client/format";
+import { formatDayHeading, formatSlotLabel, formatTime, groupByDay, sumTotals } from "@/client/format";
 import type { Entry, Settings } from "@/client/types";
 import EntryCounts from "@/components/EntryCounts";
 import { CountSteppers, type Counts } from "@/components/Stepper";
 
 const PAGE_DAYS = 14;
 const DAY_MS = 86_400_000;
+const CONFIRM_MS = 3000;
 
 function sortNewestFirst(list: Entry[]): Entry[] {
   return [...list].sort((a, b) => (a.slotStart < b.slotStart ? 1 : a.slotStart > b.slotStart ? -1 : 0));
@@ -113,8 +114,9 @@ export default function HistoryPage() {
                     onClick={() => setOpenId(openId === e.id ? null : e.id)}
                   >
                     <span className="entry-time">
-                      {e.isSleep ? "Night · " : ""}
-                      {formatSlotRange({ start: e.slotStart, end: e.slotEnd, isSleep: e.isSleep }, tz)}
+                      {e.isSleep && <span className="nowrap">Night ·</span>}
+                      {e.isSleep ? " " : ""}
+                      <SlotRange start={e.slotStart} end={e.slotEnd} tz={tz} />
                     </span>
                     <EntryCounts entry={e} />
                   </button>
@@ -144,6 +146,16 @@ export default function HistoryPage() {
   );
 }
 
+/** "11:30 PM – 7:30 AM", wrapping (if at all) only after the dash. */
+function SlotRange({ start, end, tz }: { start: string; end: string; tz: string }) {
+  return (
+    <>
+      <span className="nowrap">{formatTime(start, tz)} –</span>{" "}
+      <span className="nowrap">{formatTime(end, tz)}</span>
+    </>
+  );
+}
+
 function EditPanel({
   entry,
   tz,
@@ -165,6 +177,14 @@ function EditPanel({
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Disarm "Tap to confirm delete" after a few seconds. (Opening another row
+  // unmounts this panel, which also resets it.)
+  useEffect(() => {
+    if (!confirmDelete) return;
+    const t = window.setTimeout(() => setConfirmDelete(false), CONFIRM_MS);
+    return () => window.clearTimeout(t);
+  }, [confirmDelete]);
 
   const patch = async (skipped: boolean) => {
     setBusy(true);

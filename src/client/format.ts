@@ -20,9 +20,20 @@ function fmt(tz: string, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat 
   return f;
 }
 
-/** "2:30 PM" */
+/** "2:30 PM" (non-breaking space before AM/PM so labels never wrap as "2:30 / PM") */
 export function formatTime(iso: string, tz: string): string {
-  return fmt(tz, { hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(iso));
+  return fmt(tz, { hour: "numeric", minute: "2-digit", hour12: true })
+    .format(new Date(iso))
+    .replace(/\s+(AM|PM)$/i, "\u00a0$1");
+}
+
+/** The device's IANA timezone, or "UTC" if unavailable. */
+export function deviceTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
 }
 
 /** "Thu" */
@@ -99,15 +110,27 @@ export function sumTotals(
   return t;
 }
 
-/** Group items by local day of their slotStart, preserving input order. */
-export function groupByDay<T extends { slotStart: string }>(
+type EntryLike = { slotStart: string; slotEnd: string; isSleep: boolean };
+
+/**
+ * Local day an entry counts toward. Awake slots belong to the day they start;
+ * the night (sleep) slot belongs to the day it ENDS (the wake-up day). We use
+ * end − 1 ms so a window ending exactly at midnight stays on the earlier day.
+ */
+export function entryDayKey(e: EntryLike, tz: string): string {
+  if (e.isSleep) return dayKey(new Date(new Date(e.slotEnd).getTime() - 1), tz);
+  return dayKey(e.slotStart, tz);
+}
+
+/** Group entries by the local day they count toward (see entryDayKey), preserving input order. */
+export function groupByDay<T extends EntryLike>(
   items: T[],
   tz: string,
 ): { key: string; items: T[] }[] {
   const groups: { key: string; items: T[] }[] = [];
   const index = new Map<string, { key: string; items: T[] }>();
   for (const it of items) {
-    const k = dayKey(it.slotStart, tz);
+    const k = entryDayKey(it, tz);
     let g = index.get(k);
     if (!g) {
       g = { key: k, items: [] };

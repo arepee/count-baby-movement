@@ -2,17 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, errorMessage } from "@/client/api";
-import { sendTest } from "@/client/push";
+import { deviceTimezone } from "@/client/format";
+import { sendTest, unsubscribeQuietly } from "@/client/push";
 import { usePush } from "@/client/usePush";
 import type { Settings } from "@/client/types";
-
-function deviceTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
 
 function supportedTimezones(): string[] {
   const intl = Intl as typeof Intl & { supportedValuesOf?: (k: string) => string[] };
@@ -136,10 +129,71 @@ export default function SettingsPage() {
         {msg && <p className={msg.ok ? "success" : "error"}>{msg.text}</p>}
       </form>
 
+      <RestartSection
+        timezone={timezone.trim()}
+        disabled={!loaded || saving}
+        onDone={(st) => {
+          setSleepStart(st.sleepStart);
+          setSleepEnd(st.sleepEnd);
+          setTimezone(st.timezone);
+          setMsg(null);
+        }}
+      />
+
       <NotificationsSection />
 
       <LogoutSection />
     </>
+  );
+}
+
+function RestartSection({
+  timezone,
+  disabled,
+  onDone,
+}: {
+  timezone: string;
+  disabled: boolean;
+  onDone: (s: Settings) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const restart = async () => {
+    const ok = window.confirm(
+      `Restart tracking from now${timezone ? ` (timezone ${timezone})` : ""}?\n\n` +
+        "Hours before now that haven't been logged will be dropped and you won't be asked " +
+        "about them. Entries you've already saved are kept.",
+    );
+    if (!ok) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api<{ settings: Settings }>("/api/setup", {
+        method: "POST",
+        body: { timezone },
+      });
+      onDone(r.settings);
+      setMsg({ ok: true, text: "Tracking restarted from now" });
+    } catch (e) {
+      setMsg({ ok: false, text: errorMessage(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <h2>Tracking</h2>
+      <p className="muted small">
+        Restart if you&apos;ve been away: older unlogged hours are dropped so you only log from
+        now on. Uses the timezone selected above.
+      </p>
+      <button type="button" className="btn block" disabled={disabled || busy} onClick={restart}>
+        {busy ? "Restarting…" : "Restart tracking from now"}
+      </button>
+      {msg && <p className={msg.ok ? "success" : "error"}>{msg.text}</p>}
+    </section>
   );
 }
 
@@ -205,6 +259,8 @@ function LogoutSection() {
     setBusy(true);
     setError(null);
     try {
+      // Stop reminders on this device first (needs the session for the API call).
+      await unsubscribeQuietly();
       await api("/api/logout", { method: "POST" });
       window.location.replace("/login");
     } catch (e) {

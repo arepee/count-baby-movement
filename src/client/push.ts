@@ -48,6 +48,60 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
+function vapidKey(): string | undefined {
+  return process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || undefined;
+}
+
+/**
+ * True if `sub` was created with the current VAPID public key. A subscription
+ * made with an old key can never receive pushes signed with the new one, so it
+ * must be replaced. If the browser doesn't expose the key we assume it matches.
+ */
+function subscriptionMatchesKey(sub: PushSubscription, key: string): boolean {
+  const existing = sub.options?.applicationServerKey;
+  if (!existing) return true;
+  const a = new Uint8Array(existing);
+  let b: Uint8Array;
+  try {
+    b = urlBase64ToUint8Array(key);
+  } catch {
+    return true;
+  }
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** Drop a stale subscription locally and (best effort) on the server. */
+async function discardSubscription(sub: PushSubscription): Promise<void> {
+  const endpoint = sub.endpoint;
+  try {
+    await sub.unsubscribe();
+  } catch {
+    // ignore
+  }
+  await api("/api/push/unsubscribe", { method: "POST", body: { endpoint } }).catch(() => {});
+}
+
+/** Current subscription, replacing it if it was made with a different VAPID key. */
+async function subscribeWithCurrentKey(
+  reg: ServiceWorkerRegistration,
+  key: string,
+): Promise<PushSubscription> {
+  let sub = await reg.pushManager.getSubscription();
+  if (sub && !subscriptionMatchesKey(sub, key)) {
+    await discardSubscription(sub);
+    sub = null;
+  }
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(key),
+    });
+  }
+  return sub;
+}
+
 async function getRegistration(): Promise<ServiceWorkerRegistration | undefined> {
   if (!("serviceWorker" in navigator)) return undefined;
   return navigator.serviceWorker.getRegistration("/");
@@ -67,7 +121,14 @@ export async function getSubscriptionStatus(): Promise<PushStatus> {
   try {
     const reg = await getRegistration();
     const sub = reg ? await reg.pushManager.getSubscription() : null;
-    if (sub && Notification.permission === "granted") return "subscribed";
+    const key = vapidKey();
+    if (
+      sub &&
+      Notification.permission === "granted" &&
+      (!key || subscriptionMatchesKey(sub, key))
+    ) {
+      return "subscribed";
+    }
   } catch {
     // fall through
   }
@@ -76,7 +137,7 @@ export async function getSubscriptionStatus(): Promise<PushStatus> {
 
 export async function subscribe(): Promise<void> {
   if (!isPushSupported()) throw new Error("Push notifications aren't supported here.");
-  const key = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const key = vapidKey();
   if (!key) throw new Error("Server is missing NEXT_PUBLIC_VAPID_PUBLIC_KEY.");
 
   // Request permission directly in the user gesture before any long awaits.
@@ -90,13 +151,7 @@ export async function subscribe(): Promise<void> {
   }
 
   const reg = await ensureRegistration();
-  let sub = await reg.pushManager.getSubscription();
-  if (!sub) {
-    sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(key),
-    });
-  }
+  const sub = await subscribeWithCurrentKey(reg, key);
   await api("/api/push/subscribe", { method: "POST", body: sub.toJSON() });
 }
 
@@ -105,16 +160,53 @@ export async function unsubscribe(): Promise<void> {
   const sub = reg ? await reg.pushManager.getSubscription() : null;
   if (!sub) return;
   const endpoint = sub.endpoint;
-  await sub.unsubscribe();
+  let localError: unknown = null;
+  try {
+    await sub.unsubscribe();
+  } catch (e) {
+    localError = e;
+  }
   await api("/api/push/unsubscribe", { method: "POST", body: { endpoint } });
+  if (localError) throw localError;
 }
 
-/** Re-send an existing subscription to the server (upsert), e.g. after a DB reset. */
+/**
+ * Re-send an existing subscription to the server (upsert), e.g. after a DB
+ * reset. If it was created with an old VAPID key, replace it. Only runs when
+ * permission is already granted, so it never prompts without a user gesture.
+ */
 export async function resyncSubscription(): Promise<void> {
   if (!isPushSupported() || Notification.permission !== "granted") return;
   const reg = await getRegistration();
-  const sub = reg ? await reg.pushManager.getSubscription() : null;
-  if (sub) await api("/api/push/subscribe", { method: "POST", body: sub.toJSON() });
+  if (!reg) return;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) return; // never subscribed on this device (or user disabled it)
+  const key = vapidKey();
+  if (key && !subscriptionMatchesKey(sub, key)) {
+    // If this fails (e.g. browser wants a gesture), the device simply shows as
+    // "not subscribed" and the Enable prompt reappears — no silent failure.
+    try {
+      sub = await subscribeWithCurrentKey(reg, key);
+    } finally {
+      notifyPushChanged();
+    }
+  }
+  await api("/api/push/subscribe", { method: "POST", body: sub.toJSON() });
+}
+
+export const PUSH_CHANGED_EVENT = "bm-push-changed";
+
+function notifyPushChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(PUSH_CHANGED_EVENT));
+}
+
+/** Best-effort removal of this device's push subscription (used on logout). */
+export async function unsubscribeQuietly(timeoutMs = 3000): Promise<void> {
+  if (!isPushSupported()) return;
+  await Promise.race([
+    unsubscribe().catch(() => {}),
+    new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
 }
 
 export async function sendTest(): Promise<number> {
