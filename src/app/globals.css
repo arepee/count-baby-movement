@@ -543,3 +543,76 @@ input.input[type="time"]::-webkit-date-and-time-value {
     animation: none;
   }
 }
+
+/* ---------- Daily chart (History) ---------- */
+.chart-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 140px;
+}
+.chart-col {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+.chart-total {
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.chart-bar {
+  width: 100%;
+  max-width: 28px;
+  min-height: 2px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 3px 3px 0 0;
+  overflow: hidden;
+  background: var(--border);
+}
+.seg {
+  flex-basis: 0;
+}
+.chart-label {
+  font-size: 0.65rem;
+  color: var(--muted);
+  margin-top: 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.sw-kicks,
+.seg-kicks {
+  background: var(--accent);
+}
+.sw-rolls,
+.seg-rolls {
+  background: color-mix(in srgb, var(--accent) 55%, var(--bg));
+}
+.sw-other,
+.seg-other {
+  background: var(--muted);
+}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "@/client/api";
 import { formatDayHeading, formatSlotLabel, formatTime, groupByDay, sumTotals } from "@/client/format";
 import type { Entry, Settings } from "@/client/types";
+import DailyChart from "@/components/DailyChart";
 import EntryCounts from "@/components/EntryCounts";
 import { CountSteppers, type Counts } from "@/components/Stepper";
 
@@ -93,6 +94,8 @@ export default function HistoryPage() {
       {settings && !loading && entries.length === 0 && !error && (
         <p className="muted">No entries yet.</p>
       )}
+
+      <DailyChart groups={groups} />
 
       {groups.map((g) => {
         const t = sumTotals(g.items);
