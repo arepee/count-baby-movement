@@ -37,6 +37,7 @@ create table if not exists push_subscriptions (
 alter table settings add column if not exists initialized boolean not null default false;
 alter table settings add column if not exists failed_logins int not null default 0;
 alter table settings add column if not exists locked_until timestamptz;
+alter table settings add column if not exists due_date date;
 insert into settings (id) values (1) on conflict (id) do nothing;
 `;
 
@@ -77,6 +78,27 @@ async function q(text: string, params: unknown[] = []): Promise<Row[]> {
 const isoOf = (v: unknown): string => new Date(v as string | Date).toISOString();
 const isoOrNull = (v: unknown): string | null => (v == null ? null : isoOf(v));
 
+/**
+ * A Postgres `date` as "YYYY-MM-DD". The Neon driver may return a string or a JS Date
+ * (midnight UTC or local), so read the calendar fields without timezone shifts.
+ */
+export function dateKeyOrNull(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") {
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(v);
+    return m ? m[1] : null;
+  }
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    // A Date at local midnight (node-postgres style) or UTC midnight: pick whichever is midnight.
+    const local = v.getHours() === 0 && v.getMinutes() === 0;
+    const y = local ? v.getFullYear() : v.getUTCFullYear();
+    const m = (local ? v.getMonth() : v.getUTCMonth()) + 1;
+    const d = local ? v.getDate() : v.getUTCDate();
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  return null;
+}
+
 export function rowToEntry(r: Row): Entry {
   return {
     id: Number(r.id),
@@ -108,6 +130,7 @@ function rowToSettings(r: Row): SettingsRecord {
     timezone: String(r.timezone),
     trackingStart: isoOf(r.tracking_start),
     initialized: r.initialized === true,
+    dueDate: dateKeyOrNull(r.due_date),
     lastNotifiedSlot: isoOrNull(r.last_notified_slot),
     lastNotifiedAt: isoOrNull(r.last_notified_at),
     failedLogins: Number(r.failed_logins ?? 0),
@@ -121,12 +144,20 @@ export async function getSettings(): Promise<SettingsRecord> {
   return rowToSettings(rows[0]);
 }
 
+/** Update the sleep window and timezone; `dueDate` undefined = unchanged, null = clear. */
 export async function updateSettings(s: SettingsInput): Promise<SettingsRecord> {
   await getSettings(); // make sure the row exists
-  const rows = await q(
-    "update settings set sleep_start = $1, sleep_end = $2, timezone = $3 where id = 1 returning *",
-    [s.sleepStart, s.sleepEnd, s.timezone],
-  );
+  const rows =
+    s.dueDate === undefined
+      ? await q("update settings set sleep_start = $1, sleep_end = $2, timezone = $3 where id = 1 returning *", [
+          s.sleepStart,
+          s.sleepEnd,
+          s.timezone,
+        ])
+      : await q(
+          "update settings set sleep_start = $1, sleep_end = $2, timezone = $3, due_date = $4::date where id = 1 returning *",
+          [s.sleepStart, s.sleepEnd, s.timezone, s.dueDate],
+        );
   return rowToSettings(rows[0]);
 }
 
@@ -172,12 +203,20 @@ export async function setLastNotified(slotStart: string, at: Date): Promise<void
 }
 
 /** Strip internal fields before sending settings to the client. */
-export const publicSettings = ({ sleepStart, sleepEnd, timezone, trackingStart, initialized }: SettingsRecord): Settings => ({
+export const publicSettings = ({
   sleepStart,
   sleepEnd,
   timezone,
   trackingStart,
   initialized,
+  dueDate,
+}: SettingsRecord): Settings => ({
+  sleepStart,
+  sleepEnd,
+  timezone,
+  trackingStart,
+  initialized,
+  dueDate,
 });
 
 // ---------- Entries ----------

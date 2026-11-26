@@ -1,7 +1,7 @@
 // Request-body validation helpers. Each returns either a value or an error string.
 
 import type { EntryUpdate, SettingsInput, SetupInput } from "./types";
-import { isValidTimeZone, parseHHMM } from "./tz";
+import { isValidTimeZone, localDateKey, parseHHMM } from "./tz";
 
 export const MAX_COUNT = 999;
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -34,13 +34,47 @@ export function parseCounts(body: unknown): Result<Required<EntryUpdate>> {
   return { ok: true, value: out };
 }
 
-export function parseSettings(body: unknown): Result<SettingsInput> {
+/** Allowed due-date range, in days relative to today (settings timezone). */
+export const DUE_DATE_MIN_DAYS = -30;
+export const DUE_DATE_MAX_DAYS = 300;
+
+/** Day number (days since 1970-01-01) of a real "YYYY-MM-DD" calendar date, or null. */
+export function dayNumber(key: unknown): number | null {
+  if (typeof key !== "string") return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const t = Date.UTC(y, mo - 1, d);
+  const back = new Date(t);
+  if (back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d) return null;
+  return Math.round(t / 86_400_000);
+}
+
+/**
+ * Validate an optional due date: undefined (unchanged), null (clear) or a real
+ * "YYYY-MM-DD" within DUE_DATE_MIN_DAYS..DUE_DATE_MAX_DAYS of today in `timeZone`.
+ */
+export function parseDueDate(v: unknown, timeZone: string, now: Date = new Date()): Result<string | null | undefined> {
+  if (v === undefined || v === null) return { ok: true, value: v };
+  const err = `"dueDate" must be a date (YYYY-MM-DD) between ${-DUE_DATE_MIN_DAYS} days ago and ${DUE_DATE_MAX_DAYS} days from today, or null`;
+  const n = dayNumber(v);
+  if (n === null) return { ok: false, error: err };
+  const today = dayNumber(localDateKey(now, timeZone))!;
+  if (n - today < DUE_DATE_MIN_DAYS || n - today > DUE_DATE_MAX_DAYS) return { ok: false, error: err };
+  return { ok: true, value: v as string };
+}
+
+export function parseSettings(body: unknown, now: Date = new Date()): Result<SettingsInput> {
   if (!isObj(body)) return { ok: false, error: "Body must be a JSON object" };
   const { sleepStart, sleepEnd, timezone } = body;
   if (parseHHMM(sleepStart) === null) return { ok: false, error: '"sleepStart" must be HH:MM (24h)' };
   if (parseHHMM(sleepEnd) === null) return { ok: false, error: '"sleepEnd" must be HH:MM (24h)' };
   if (!isValidTimeZone(timezone)) return { ok: false, error: '"timezone" must be a valid IANA time zone' };
-  return { ok: true, value: { sleepStart: sleepStart as string, sleepEnd: sleepEnd as string, timezone } };
+  const due = parseDueDate(body.dueDate, timezone, now);
+  if (!due.ok) return due;
+  const value: SettingsInput = { sleepStart: sleepStart as string, sleepEnd: sleepEnd as string, timezone };
+  if (due.value !== undefined) value.dueDate = due.value;
+  return { ok: true, value };
 }
 
 export function parseSetup(body: unknown): Result<SetupInput> {

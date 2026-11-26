@@ -52,6 +52,7 @@ const statements = [
   `alter table settings add column if not exists initialized boolean not null default false`,
   `alter table settings add column if not exists failed_logins int not null default 0`,
   `alter table settings add column if not exists locked_until timestamptz`,
+  `alter table settings add column if not exists due_date date`,
 ];
 
 const sql = neon(url);
