@@ -284,7 +284,7 @@ a {
   background: transparent;
   color: var(--fg);
   font: inherit;
-  font-size: 1.9rem;
+  font-size: 1.7rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   text-align: center;
@@ -531,6 +531,7 @@ input.input[type="time"]::-webkit-date-and-time-value {
   .step-value,
   .step-input {
     width: 56px;
+    font-size: 1.5rem;
   }
   .row-2 {
     gap: 8px;
