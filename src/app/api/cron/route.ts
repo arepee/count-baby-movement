@@ -3,7 +3,7 @@ import { handle, json } from "@/lib/http";
 import { PushNotConfiguredError, sendToAll } from "@/lib/push";
 import { decideReminder } from "@/lib/reminders";
 import { safeEqual } from "@/lib/session";
-import { loadPending } from "@/lib/state";
+import { loadPending, loadPrefill } from "@/lib/state";
 import type { CronResponse } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +27,8 @@ async function run(req: Request): Promise<Response> {
     pending,
     lastNotifiedSlot: settings.lastNotifiedSlot,
     lastNotifiedAt: settings.lastNotifiedAt,
+    // Only the latest pending slot's taps can change the text ("Confirm 3 kicks for ...").
+    prefill: pending.length > 0 ? await loadPrefill(pending.slice(-1), settings) : {},
   });
   if (!decision.notify) return json<CronResponse>({ notified: false, reason: decision.reason, pending: pending.length });
 

@@ -44,12 +44,28 @@ export type EntryInput = {
 /** PATCH /api/entries/:id body. */
 export type EntryUpdate = Omit<EntryInput, "slotStart">;
 
+/** Live taps (v3): one tap = one movement recorded the moment it happened (a draft). */
+export type TapKind = "kick" | "roll" | "other";
+export type Tap = { id: number; at: string; kind: TapKind }; // at: ISO UTC (server time)
+export type Counts = { kicks: number; rolls: number; other: number };
+
+/** POST /api/taps body. */
+export type TapInput = { kind: TapKind };
+/** POST /api/taps response. `live` = counts for the in-progress slot after the tap. */
+export type TapResponse = { tap: Tap; live: Counts };
+/** DELETE /api/taps/:id response (undo). */
+export type TapDeleteResponse = { ok: true; live: Counts };
+
 export type StateResponse = {
   now: string;
   settings: Settings;
   pending: Slot[]; // oldest first, max 72
   current: Slot; // slot containing now (in progress)
   recent: Entry[]; // last 7 days, newest first
+  live: Counts; // taps inside `current` (zeros if that slot already has an entry)
+  lastTap: Tap | null; // most recent tap overall
+  todayTaps: Tap[]; // taps since local midnight (settings tz), newest first, max 200; excludes taps in hours that already have an entry
+  prefill: Record<string, Counts>; // keyed by pending slot `start` (same string); only slots with >= 1 tap
 };
 
 /** Per-day aggregate for Insights (day keys follow slotDayKey()). */

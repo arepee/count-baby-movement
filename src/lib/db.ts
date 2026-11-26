@@ -1,7 +1,7 @@
 // Neon Postgres data access (server only).
 
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
-import type { Entry, Settings, SettingsInput, Slot } from "./types";
+import type { Entry, Settings, SettingsInput, Slot, Tap, TapKind } from "./types";
 
 // Mirrors src/lib/schema.sql (embedded: reading files at runtime on Vercel is fragile).
 export const SCHEMA_SQL = `
@@ -38,6 +38,12 @@ alter table settings add column if not exists initialized boolean not null defau
 alter table settings add column if not exists failed_logins int not null default 0;
 alter table settings add column if not exists locked_until timestamptz;
 alter table settings add column if not exists due_date date;
+create table if not exists taps (
+  id serial primary key,
+  at timestamptz not null default now(),
+  kind text not null check (kind in ('kick','roll','other'))
+);
+create index if not exists taps_at_idx on taps (at);
 insert into settings (id) values (1) on conflict (id) do nothing;
 `;
 
@@ -221,9 +227,9 @@ export const publicSettings = ({
 
 // ---------- Entries ----------
 
-export type Counts = { kicks: number; rolls: number; other: number; skipped: boolean };
+export type EntryCounts = { kicks: number; rolls: number; other: number; skipped: boolean };
 
-export async function upsertEntry(slot: Slot, c: Counts): Promise<Entry> {
+export async function upsertEntry(slot: Slot, c: EntryCounts): Promise<Entry> {
   const rows = await q(
     `insert into entries (slot_start, slot_end, is_sleep, kicks, rolls, other, skipped)
      values ($1, $2, $3, $4, $5, $6, $7)
@@ -236,7 +242,7 @@ export async function upsertEntry(slot: Slot, c: Counts): Promise<Entry> {
   return rowToEntry(rows[0]);
 }
 
-export async function updateEntry(id: number, c: Counts): Promise<Entry | null> {
+export async function updateEntry(id: number, c: EntryCounts): Promise<Entry | null> {
   const rows = await q(
     `update entries set kicks = $2, rolls = $3, other = $4, skipped = $5, updated_at = now()
      where id = $1 returning *`,
@@ -265,6 +271,44 @@ export async function listEntries(from?: Date | null, to?: Date | null): Promise
 export async function entryRangesBetween(from: string, to: string): Promise<{ slotStart: string; slotEnd: string }[]> {
   const rows = await q("select slot_start, slot_end from entries where slot_end > $1 and slot_start < $2", [from, to]);
   return rows.map((r) => ({ slotStart: isoOf(r.slot_start), slotEnd: isoOf(r.slot_end) }));
+}
+
+// ---------- Taps (live movements, v3) ----------
+
+export function rowToTap(r: Row): Tap {
+  return { id: Number(r.id), at: isoOf(r.at), kind: String(r.kind) as TapKind };
+}
+
+/** Record a tap. `at` defaults to the server's clock (the same clock the slot math uses). */
+export async function insertTap(kind: TapKind, at: Date = new Date()): Promise<Tap> {
+  const rows = await q("insert into taps (at, kind) values ($1, $2) returning *", [at.toISOString(), kind]);
+  return rowToTap(rows[0]);
+}
+
+export async function getTap(id: number): Promise<Tap | null> {
+  const rows = await q("select * from taps where id = $1", [id]);
+  return rows[0] ? rowToTap(rows[0]) : null;
+}
+
+export async function deleteTap(id: number): Promise<boolean> {
+  const rows = await q("delete from taps where id = $1 returning id", [id]);
+  return rows.length > 0;
+}
+
+/** Taps with `at` in [from, to), oldest first. `to` omitted = no upper bound. */
+export async function tapsBetween(from: string | Date, to?: string | Date | null): Promise<Tap[]> {
+  const iso = (v: string | Date) => new Date(v).toISOString();
+  const rows = await q(
+    "select * from taps where at >= $1 and ($2::timestamptz is null or at < $2) order by at, id",
+    [iso(from), to == null ? null : iso(to)],
+  );
+  return rows.map(rowToTap);
+}
+
+/** Most recent tap overall, or null. */
+export async function lastTap(): Promise<Tap | null> {
+  const rows = await q("select * from taps order by at desc, id desc limit 1");
+  return rows[0] ? rowToTap(rows[0]) : null;
 }
 
 // ---------- Push subscriptions ----------

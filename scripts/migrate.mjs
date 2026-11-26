@@ -53,6 +53,12 @@ const statements = [
   `alter table settings add column if not exists failed_logins int not null default 0`,
   `alter table settings add column if not exists locked_until timestamptz`,
   `alter table settings add column if not exists due_date date`,
+  `create table if not exists taps (
+    id serial primary key,
+    at timestamptz not null default now(),
+    kind text not null check (kind in ('kick','roll','other'))
+  )`,
+  `create index if not exists taps_at_idx on taps (at)`,
 ];
 
 const sql = neon(url);

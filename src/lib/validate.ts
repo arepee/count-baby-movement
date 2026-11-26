@@ -1,6 +1,7 @@
 // Request-body validation helpers. Each returns either a value or an error string.
 
-import type { EntryUpdate, SettingsInput, SetupInput } from "./types";
+import type { EntryUpdate, SettingsInput, SetupInput, TapInput } from "./types";
+import { isTapKind } from "./taps";
 import { isValidTimeZone, localDateKey, parseHHMM } from "./tz";
 
 export const MAX_COUNT = 999;
@@ -103,8 +104,13 @@ export function parseInstant(v: unknown, name: string): Result<Date> {
   return { ok: true, value: d };
 }
 
-export function parseId(v: string): Result<number> {
+export function parseTap(body: unknown): Result<TapInput> {
+  if (!isObj(body) || !isTapKind(body.kind)) return { ok: false, error: '"kind" must be "kick", "roll" or "other"' };
+  return { ok: true, value: { kind: body.kind } };
+}
+
+export function parseId(v: string, what = "entry"): Result<number> {
   const n = Number(v);
-  if (!/^\d+$/.test(v) || !Number.isSafeInteger(n) || n <= 0) return { ok: false, error: "Invalid entry id" };
+  if (!/^\d+$/.test(v) || !Number.isSafeInteger(n) || n <= 0) return { ok: false, error: `Invalid ${what} id` };
   return { ok: true, value: n };
 }

@@ -1,7 +1,8 @@
 // Pure reminder decision logic for /api/cron (see docs/SPEC.md "Reminder logic").
 
-import type { PushPayload, Slot } from "./types";
+import type { Counts, PushPayload, Slot } from "./types";
 import { formatTime, formatTimeRange, slotContaining, type SlotSettings } from "./slots";
+import { confirmTapsBody } from "./taps";
 
 export const REMIND_AGAIN_MS = 55 * 60_000;
 /** Skip a re-remind when the in-progress slot ends this soon: a new-slot push is about to follow. */
@@ -13,6 +14,8 @@ export type ReminderInput = {
   pending: Slot[]; // oldest first
   lastNotifiedSlot: string | null;
   lastNotifiedAt: string | null;
+  /** Tap counts keyed by pending slot start (live taps, v3); only the latest slot's is used. */
+  prefill?: Record<string, Counts>;
 };
 
 export type ReminderDecision =
@@ -23,7 +26,7 @@ const plural = (n: number) => `${n} hour${n === 1 ? "" : "s"}`;
 const same = (a: string | null, b: string) => a !== null && new Date(a).getTime() === new Date(b).getTime();
 
 export function decideReminder(input: ReminderInput): ReminderDecision {
-  const { now, settings, pending, lastNotifiedSlot, lastNotifiedAt } = input;
+  const { now, settings, pending, lastNotifiedSlot, lastNotifiedAt, prefill } = input;
   const current = slotContaining(now, settings);
   if (current.isSleep) return { notify: false, reason: "sleeping" };
   if (pending.length === 0) return { notify: false, reason: "nothing-pending" };
@@ -35,7 +38,9 @@ export function decideReminder(input: ReminderInput): ReminderDecision {
 
   if (!same(lastNotifiedSlot, latest.start)) {
     let body: string;
-    if (latest.isSleep && n === 1) body = "Good morning — log movement for the night";
+    const confirm = n === 1 ? confirmTapsBody(latest, prefill?.[latest.start], tz) : null;
+    if (confirm) body = confirm;
+    else if (latest.isSleep && n === 1) body = "Good morning — log movement for the night";
     else if (n === 1) body = `Log baby movement for ${formatTimeRange(latest, tz)}`;
     else body = `${plural(n)} to log, starting ${formatTime(pending[0].start, tz, true)}`;
     if (latest.isSleep && n > 1) body = `Good morning — ${body}`;
