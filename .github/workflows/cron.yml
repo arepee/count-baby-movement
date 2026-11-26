@@ -1,0 +1,39 @@
+name: Reminder cron
+
+# Pings /api/cron so the app can send hourly "log baby movement" push reminders.
+#
+# Runs every 30 minutes. GitHub's scheduler is best-effort: runs are often
+# delayed 5-15+ minutes (sometimes more at busy times, especially around :00),
+# so polling twice an hour keeps reminders reasonably close to the hour. The app
+# itself decides whether a notification is actually due.
+#
+# Cost: each run takes well under a minute, but GitHub bills per started minute.
+# 48 runs/day * 30 days ~= 1440 min/month. Public repos: free/unlimited.
+# Private repos: GitHub Free includes 2000 min/month, so this uses most of it.
+# Switch to '0 * * * *' (hourly, ~720 min/month) if you need to save minutes.
+#
+# Note: GitHub disables scheduled workflows after 60 days without repository
+# activity. Re-enable it in the Actions tab (or push a commit) if that happens.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: reminder-cron
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call /api/cron
+        run: |
+          curl -fsS -X POST --max-time 30 \
+            --retry 3 --retry-delay 10 --retry-all-errors \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron"

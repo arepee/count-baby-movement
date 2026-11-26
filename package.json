@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "vapid": "node scripts/vapid.mjs",
+    "db:migrate": "node scripts/migrate.mjs",
+    "icons": "node scripts/gen-icons.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.1",
