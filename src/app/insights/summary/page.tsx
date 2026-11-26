@@ -5,6 +5,7 @@ import {
   flagLowDays,
   formatPregnancy,
   keyLong,
+  keyCompact,
   keyShort,
   LOW_MIN_BASELINE_DAYS,
   round1,
@@ -96,8 +97,8 @@ export default function DoctorSummaryPage() {
                       <th scope="col">Other</th>
                       <th scope="col">Total</th>
                       <th scope="col">Night</th>
-                      <th scope="col">Logged h</th>
-                      <th scope="col">Skipped h</th>
+                      <th scope="col" title="Hours logged">Log h</th>
+                      <th scope="col" title="Hours skipped (not tracked)">Skip h</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -106,9 +107,14 @@ export default function DoctorSummaryPage() {
                       return (
                         <tr key={d.key} className={isLow ? "low" : undefined}>
                           <th scope="row">
-                            {keyShort(d.key)}
-                            {d.key === data.today.key ? " (today)" : ""}
-                            {isLow && <span className="low-mark"> ▲ low</span>}
+                            <span className="d-long">{keyShort(d.key)}</span>
+                            <span className="d-short">{keyCompact(d.key)}</span>
+                            {d.key === data.today.key && (
+                              <span className="d-note"> (today)</span>
+                            )}
+                            {isLow && (
+                              <span className="d-note low-mark"> ▲ low</span>
+                            )}
                           </th>
                           <td>{d.kicks}</td>
                           <td>{d.rolls}</td>
@@ -162,7 +168,7 @@ export default function DoctorSummaryPage() {
                   <thead>
                     <tr>
                       <th scope="col">Week</th>
-                      <th scope="col">Dates</th>
+                      <th scope="col" className="left">Dates</th>
                       <th scope="col">Days logged</th>
                       <th scope="col">Avg / day</th>
                     </tr>
@@ -172,7 +178,12 @@ export default function DoctorSummaryPage() {
                       <tr key={w.startKey}>
                         <th scope="row">{w.label}</th>
                         <td className="left">
-                          {keyShort(w.startKey)} – {keyShort(w.endKey)}
+                          <span className="d-long">
+                            {keyShort(w.startKey)} – {keyShort(w.endKey)}
+                          </span>
+                          <span className="d-short">
+                            {keyCompact(w.startKey)} – {keyCompact(w.endKey)}
+                          </span>
                         </td>
                         <td>{w.days}</td>
                         <td>
@@ -186,11 +197,13 @@ export default function DoctorSummaryPage() {
             )}
           </section>
 
-          <section className="sum-section">
+          <section className="sum-section keep">
             <h2>Hourly pattern, last 7 days</h2>
             <p className="muted small">
-              Each column is a waking hour (by start time); darker = more
-              movements. Faded columns are within the sleep window.
+              One column per waking hour, labelled by start time; darker = more
+              movements. Sleep-window hours aren&apos;t shown — the whole night
+              is the last column (its total is printed in it). An outlined cell
+              is an hour that wasn&apos;t logged or was skipped.
             </p>
             <ActivityGrid
               grid={data.grid}

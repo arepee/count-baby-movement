@@ -33,6 +33,11 @@ export function keyShort(key: string): string {
   return fmtKey(key, { weekday: "short", month: "short", day: "numeric" });
 }
 
+/** "Nov 26" for a day key (no weekday; narrow tables). */
+export function keyCompact(key: string): string {
+  return fmtKey(key, { month: "short", day: "numeric" });
+}
+
 /** "Nov 26, 2026" for a day key. */
 export function keyLong(key: string): string {
   return fmtKey(key, { month: "short", day: "numeric", year: "numeric" });
@@ -44,20 +49,27 @@ function toMin(hhmm: string): number {
 }
 
 /**
- * Local hours (0..23) at which an awake slot starts, per the sleep window.
- * Awake slots are anchored to the wake time and run until sleep starts.
+ * The grid's hour columns: local START hour (0..23) of each awake slot, in order from
+ * the wake time (awake slots are anchored to the wake minute and run until sleep
+ * starts). Wake 07:30 / sleep 23:30 → [7, 8, …, 22]. Equal times → all 24 hours.
  */
-export function awakeStartHours(
+export function awakeColumns(
   s: Pick<Settings, "sleepStart" | "sleepEnd">,
-): Set<number> {
+): number[] {
   const wake = toMin(s.sleepEnd);
   const sleep = toMin(s.sleepStart);
   const awakeLen = sleep === wake ? 1440 : (sleep - wake + 1440) % 1440;
-  const hours = new Set<number>();
+  const hours: number[] = [];
   for (let off = 0; off < awakeLen; off += 60) {
-    hours.add(Math.floor(((wake + off) % 1440) / 60));
+    const h = Math.floor(((wake + off) % 1440) / 60);
+    if (!hours.includes(h)) hours.push(h);
   }
   return hours;
+}
+
+/** Wake minute (0..59): awake slots start at this minute past each hour. */
+export function wakeMinute(s: Pick<Settings, "sleepEnd">): number {
+  return toMin(s.sleepEnd) % 60;
 }
 
 /** Round to at most one decimal, dropping a trailing ".0". */

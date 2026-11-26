@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, errorMessage } from "@/client/api";
-import { deviceTimezone } from "@/client/format";
+import { deviceTimezone, sameTimezone } from "@/client/format";
 import { sendTest, unsubscribeQuietly } from "@/client/push";
 import { usePush } from "@/client/usePush";
 import type { Settings } from "@/client/types";
@@ -119,7 +119,7 @@ export default function SettingsPage() {
               <option key={z} value={z} />
             ))}
           </datalist>
-          {loaded && devTz !== timezone && (
+          {loaded && devTz && !sameTimezone(devTz, timezone) && (
             <button type="button" className="btn" onClick={() => setTimezone(devTz)}>
               Use this device&apos;s timezone ({devTz})
             </button>

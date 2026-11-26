@@ -195,7 +195,16 @@ export function buildInsights(entries: Entry[], settings: Settings, now: Ms, day
         const h = toLocal(a.start, tz).hour;
         cells[h] = (cells[h] ?? 0) + a.total; // two slots can share an hour on a fall-back day
       }
-      return { key, cells, night: dayStat(key, listFor(key)).night };
+      // Awake slots of this day (current settings) that haven't ended yet; the
+      // in-progress slot counts as future. Only today (and never past days) has any.
+      const future: boolean[] = Array(24).fill(false);
+      if (key === todayKey) {
+        for (const slot of daySlots(key, settings)) {
+          if (slot.isSleep || toMs(slot.end) <= nowMs) continue;
+          future[toLocal(toMs(slot.start), tz).hour] = true;
+        }
+      }
+      return { key, cells, future, night: dayStat(key, listFor(key)).night };
     });
   const hourAvg = Array.from({ length: 24 }, (_, h) => {
     const vals = grid.map((r) => r.cells[h]).filter((v): v is number => v !== null);

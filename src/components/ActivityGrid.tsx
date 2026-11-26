@@ -1,8 +1,10 @@
+import type { CSSProperties } from "react";
 import {
-  awakeStartHours,
+  awakeColumns,
   keyShort,
   keyWeekday,
   round1,
+  wakeMinute,
 } from "@/client/insights";
 import type { InsightsResponse, Settings } from "@/client/types";
 
@@ -12,8 +14,8 @@ type Props = {
   settings: Pick<Settings, "sleepStart" | "sleepEnd">;
 };
 
-const HOURS = Array.from({ length: 24 }, (_, h) => h);
-const TICKS = ["12a", "6a", "12p", "6p"];
+/** A tick label (and a small visual gap) every this many hour columns. */
+const TICK_EVERY = 3;
 
 function level(v: number | null, max: number): string {
   if (v === null) return "none";
@@ -24,7 +26,13 @@ function level(v: number | null, max: number): string {
 function clock(h: number, minute: number): string {
   const ap = h < 12 ? "AM" : "PM";
   const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${String(minute).padStart(2, "0")} ${ap}`;
+  return `${h12}:${String(minute).padStart(2, "0")} ${ap}`;
+}
+
+/** "7a", "12p" */
+function tick(h: number): string {
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}${h < 12 ? "a" : "p"}`;
 }
 
 function fmtCount(v: number | null): string {
@@ -34,16 +42,20 @@ function fmtCount(v: number | null): string {
 }
 
 /**
- * 7 days × 24 hourly columns (by awake-slot start hour) + night column, with an
- * average row. Tiny cells so it fits a 320px phone without horizontal scroll.
+ * 7 days × one column per awake hourly slot (from the wake time to sleep start,
+ * by slot start hour) + a night column, with an average row. Sleep-window hours
+ * aren't shown: the whole night is the last column. Small cells so it fits a 320px
+ * phone without horizontal scroll.
  */
 export default function ActivityGrid({ grid, hourAvg, settings }: Props) {
-  const awake = awakeStartHours(settings);
-  const minute = Number(settings.sleepEnd.split(":")[1] ?? 0) || 0;
+  const cols = awakeColumns(settings);
+  const minute = wakeMinute(settings);
   const cellMax = Math.max(
     0,
-    ...grid.flatMap((r) => r.cells.filter((c): c is number => c !== null)),
-    ...hourAvg.filter((c): c is number => c !== null),
+    ...grid.flatMap((r) =>
+      cols.map((h) => r.cells[h]).filter((c): c is number => c != null),
+    ),
+    ...cols.map((h) => hourAvg[h]).filter((c): c is number => c != null),
   );
   const nights = grid
     .map((r) => r.night)
@@ -53,42 +65,47 @@ export default function ActivityGrid({ grid, hourAvg, settings }: Props) {
     ? nights.reduce((a, b) => a + b, 0) / nights.length
     : null;
 
-  const cellClass = (h: number, v: number | null) => {
-    const cls = ["hg-cell", level(v, cellMax)];
-    if (!awake.has(h)) cls.push("off");
-    if (h > 0 && h % 6 === 0) cls.push("sep");
-    return cls.join(" ");
-  };
+  const sep = (i: number) => (i > 0 && i % TICK_EVERY === 0 ? " sep" : "");
+  const ticks = cols
+    .map((h, i) => ({ h, i }))
+    .filter(({ i }) => i % TICK_EVERY === 0);
+  const style = { "--hg-cols": cols.length } as CSSProperties;
 
   return (
     <div
       className="hgrid"
       role="table"
-      aria-label="Movements per hour, last 7 days"
+      aria-label="Movements per waking hour and night, last 7 days"
+      style={style}
     >
       <div className="hg-row hg-ticks" role="row" aria-hidden="true">
         <span className="hg-label" />
-        {TICKS.map((t, i) => (
-          <span key={t} className={i > 0 ? "hg-tick sep" : "hg-tick"}>
-            {t}
+        {ticks.map(({ h, i }) => (
+          <span
+            key={h}
+            className={`hg-tick${sep(i)}`}
+            style={{ gridColumn: `${i + 2} / span ${Math.min(TICK_EVERY, cols.length - i)}` }}
+          >
+            {tick(h)}
           </span>
         ))}
-        <span className="hg-night-head">Night</span>
+        <span className="hg-night-head" style={{ gridColumn: cols.length + 2 }}>
+          Night
+        </span>
       </div>
       {grid.map((r) => (
         <div key={r.key} className="hg-row" role="row">
           <span className="hg-label" role="rowheader" title={keyShort(r.key)}>
             {keyWeekday(r.key)}
           </span>
-          {HOURS.map((h) => {
+          {cols.map((h, i) => {
             const v = r.cells[h] ?? null;
-            const label = awake.has(h)
-              ? `${keyShort(r.key)}, ${clock(h, minute)}: ${fmtCount(v)}`
-              : `${keyShort(r.key)}, ${clock(h, minute)}: asleep`;
+            const future = v === null && (r.future?.[h] ?? false);
+            const label = `${keyShort(r.key)}, ${clock(h, minute)}: ${future ? "not yet" : fmtCount(v)}`;
             return (
               <span
                 key={h}
-                className={cellClass(h, v)}
+                className={`hg-cell ${future ? "future" : level(v, cellMax)}${sep(i)}`}
                 role="cell"
                 title={label}
                 aria-label={label}
@@ -113,13 +130,13 @@ export default function ActivityGrid({ grid, hourAvg, settings }: Props) {
         >
           Avg
         </span>
-        {HOURS.map((h) => {
+        {cols.map((h, i) => {
           const v = hourAvg[h] ?? null;
           const label = `Average at ${clock(h, minute)}: ${v === null ? "no data" : round1(v)}`;
           return (
             <span
               key={h}
-              className={cellClass(h, v)}
+              className={`hg-cell ${level(v, cellMax)}${sep(i)}`}
               role="cell"
               title={label}
               aria-label={label}

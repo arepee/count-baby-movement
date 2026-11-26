@@ -27,10 +27,106 @@ export function formatTime(iso: string, tz: string): string {
     .replace(/\s+(AM|PM)$/i, "\u00a0$1");
 }
 
-/** The device's IANA timezone, or "UTC" if unavailable. */
+/**
+ * Legacy IANA names some browsers still report (e.g. Chromium/ICU gives
+ * "Asia/Calcutta"), mapped to the current canonical name.
+ */
+const TZ_ALIASES: Record<string, string> = {
+  "Asia/Calcutta": "Asia/Kolkata",
+  "Asia/Saigon": "Asia/Ho_Chi_Minh",
+  "Asia/Katmandu": "Asia/Kathmandu",
+  "Asia/Rangoon": "Asia/Yangon",
+  "Asia/Dacca": "Asia/Dhaka",
+  "Asia/Thimbu": "Asia/Thimphu",
+  "Asia/Ujung_Pandang": "Asia/Makassar",
+  "Asia/Ulan_Bator": "Asia/Ulaanbaatar",
+  "Asia/Chongqing": "Asia/Shanghai",
+  "Asia/Chungking": "Asia/Shanghai",
+  "Asia/Harbin": "Asia/Shanghai",
+  "Asia/Kashgar": "Asia/Urumqi",
+  "Asia/Tel_Aviv": "Asia/Jerusalem",
+  "Asia/Istanbul": "Europe/Istanbul",
+  "Europe/Kiev": "Europe/Kyiv",
+  "Europe/Uzhgorod": "Europe/Kyiv",
+  "Europe/Zaporozhye": "Europe/Kyiv",
+  "Europe/Belfast": "Europe/London",
+  "Europe/Nicosia": "Asia/Nicosia",
+  "Atlantic/Faeroe": "Atlantic/Faroe",
+  "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+  "America/Catamarca": "America/Argentina/Catamarca",
+  "America/Cordoba": "America/Argentina/Cordoba",
+  "America/Jujuy": "America/Argentina/Jujuy",
+  "America/Mendoza": "America/Argentina/Mendoza",
+  "America/Indianapolis": "America/Indiana/Indianapolis",
+  "America/Fort_Wayne": "America/Indiana/Indianapolis",
+  "America/Louisville": "America/Kentucky/Louisville",
+  "America/Godthab": "America/Nuuk",
+  "America/Montreal": "America/Toronto",
+  "America/Shiprock": "America/Denver",
+  "America/Ensenada": "America/Tijuana",
+  "America/Santa_Isabel": "America/Tijuana",
+  "Pacific/Truk": "Pacific/Chuuk",
+  "Pacific/Ponape": "Pacific/Pohnpei",
+  "Pacific/Enderbury": "Pacific/Kanton",
+  "Pacific/Samoa": "Pacific/Pago_Pago",
+  "Australia/Canberra": "Australia/Sydney",
+  "Australia/ACT": "Australia/Sydney",
+  "Australia/NSW": "Australia/Sydney",
+  "Africa/Asmera": "Africa/Asmara",
+  "Africa/Timbuktu": "Africa/Bamako",
+  "US/Eastern": "America/New_York",
+  "US/Central": "America/Chicago",
+  "US/Mountain": "America/Denver",
+  "US/Pacific": "America/Los_Angeles",
+  "US/Alaska": "America/Anchorage",
+  "US/Hawaii": "Pacific/Honolulu",
+  "US/Arizona": "America/Phoenix",
+  "Etc/UTC": "UTC",
+  "Etc/GMT": "UTC",
+  "Etc/Universal": "UTC",
+  "Etc/Zulu": "UTC",
+  GMT: "UTC",
+  Universal: "UTC",
+  Zulu: "UTC",
+};
+
+/**
+ * Canonical (modern) spelling of an IANA timezone name: resolves case/aliases via
+ * Intl where possible, then maps known legacy names (Asia/Calcutta → Asia/Kolkata).
+ * Unknown/invalid names are returned trimmed and unchanged.
+ */
+export function canonicalTimezone(tz: string): string {
+  const name = tz.trim();
+  if (!name) return name;
+  let resolved = name;
+  try {
+    resolved = new Intl.DateTimeFormat("en", { timeZone: name }).resolvedOptions().timeZone || name;
+  } catch {
+    return name;
+  }
+  const modern = TZ_ALIASES[resolved] ?? TZ_ALIASES[name];
+  // Only switch to the modern name if this runtime knows it (older ICU lacks e.g. Europe/Kyiv).
+  return modern && isKnownTimezone(modern) ? modern : resolved;
+}
+
+function isKnownTimezone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** True when two timezone names denote the same zone (e.g. Asia/Calcutta and Asia/Kolkata). */
+export function sameTimezone(a: string, b: string): boolean {
+  return canonicalTimezone(a) === canonicalTimezone(b);
+}
+
+/** The device's IANA timezone (modern spelling, e.g. "Asia/Kolkata"), or "UTC" if unavailable. */
 export function deviceTimezone(): string {
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    return canonicalTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC") || "UTC";
   } catch {
     return "UTC";
   }

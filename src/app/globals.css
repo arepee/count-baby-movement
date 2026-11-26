@@ -9,6 +9,10 @@
   --accent-fg: #ffffff;
   --accent-soft: rgba(47, 95, 208, 0.1);
   --danger: #c62828;
+  /* Activity grid: empty (0) cell fill, "not logged" outline, weakest accent mix. */
+  --cell-empty: #dcdfe4;
+  --cell-none: #9aa0a8;
+  --cell-l1: 28%;
   --radius: 12px;
   --nav-h: 56px;
   --safe-top: env(safe-area-inset-top, 0px);
@@ -28,6 +32,9 @@
     --accent-fg: #0b1430;
     --accent-soft: rgba(126, 162, 255, 0.14);
     --danger: #ff6b6b;
+    --cell-empty: #3a3f48;
+    --cell-none: #6f7681;
+    --cell-l1: 40%;
   }
 }
 
@@ -653,7 +660,7 @@ input.input[type="time"]::-webkit-date-and-time-value {
   font-weight: 600;
 }
 
-/* Active hours grid: label + 24 hour columns + night column. */
+/* Active hours grid: label + one column per awake hour (--hg-cols) + night column. */
 .hgrid {
   display: flex;
   flex-direction: column;
@@ -662,7 +669,7 @@ input.input[type="time"]::-webkit-date-and-time-value {
 }
 .hg-row {
   display: grid;
-  grid-template-columns: 30px repeat(24, minmax(0, 1fr)) 30px;
+  grid-template-columns: 30px repeat(var(--hg-cols, 24), minmax(0, 1fr)) 36px;
   column-gap: 1px;
   align-items: center;
 }
@@ -672,20 +679,24 @@ input.input[type="time"]::-webkit-date-and-time-value {
   white-space: nowrap;
   overflow: hidden;
 }
+.hg-ticks .hg-label {
+  grid-column: 1;
+}
 .hg-tick {
-  grid-column: span 6;
   font-size: 0.65rem;
+  line-height: 1.3;
   color: var(--muted);
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--cell-none);
   padding-left: 2px;
   white-space: nowrap;
-  overflow: hidden;
+  min-width: 0;
 }
 .hg-night-head {
   font-size: 0.6rem;
+  line-height: 1.3;
   color: var(--muted);
-  text-align: center;
-  margin-left: 4px;
+  text-align: right;
+  margin-left: 6px;
   overflow: hidden;
 }
 .hg-cell {
@@ -695,11 +706,11 @@ input.input[type="time"]::-webkit-date-and-time-value {
 }
 .hg-cell.sep,
 .hg-tick.sep {
-  margin-left: 3px;
+  margin-left: 2px;
 }
 .hg-night {
   height: 16px;
-  margin-left: 4px;
+  margin-left: 6px;
   border-radius: 3px;
   font-size: 0.65rem;
   line-height: 16px;
@@ -717,10 +728,10 @@ input.input[type="time"]::-webkit-date-and-time-value {
   font-weight: 700;
 }
 .l0 {
-  background: var(--border);
+  background: var(--cell-empty);
 }
 .l1 {
-  background: color-mix(in srgb, var(--accent) 28%, var(--surface));
+  background: color-mix(in srgb, var(--accent) var(--cell-l1), var(--surface));
 }
 .l2 {
   background: color-mix(in srgb, var(--accent) 52%, var(--surface));
@@ -735,13 +746,13 @@ input.input[type="time"]::-webkit-date-and-time-value {
 .hg-night.l4 {
   color: var(--accent-fg);
 }
-/* Awake hour with no entry (or skipped): outlined. Sleep-window hours: blank. */
+/* Ended awake hour with no entry (or skipped): outlined. Not ended yet: blank. */
 .none {
   background: transparent;
-  box-shadow: inset 0 0 0 1px var(--border);
+  box-shadow: inset 0 0 0 1px var(--cell-none);
 }
-.hg-cell.off.none {
-  box-shadow: none;
+.hg-cell.future {
+  background: transparent;
 }
 .hg-legend {
   display: flex;
@@ -808,6 +819,22 @@ input.input[type="date"]::-webkit-date-and-time-value {
 }
 
 /* ---------- Doctor summary ---------- */
+/* Print-friendly: always the light palette on screen too, whatever the device scheme. */
+:root:has(.summary) {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f3f4f6;
+  --border: #e2e4e8;
+  --fg: #16181b;
+  --muted: #646a73;
+  --accent: #2f5fd0;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(47, 95, 208, 0.1);
+  --danger: #c62828;
+  --cell-empty: #dcdfe4;
+  --cell-none: #9aa0a8;
+  --cell-l1: 28%;
+}
 .summary {
   display: flex;
   flex-direction: column;
@@ -854,6 +881,7 @@ input.input[type="date"]::-webkit-date-and-time-value {
   vertical-align: bottom;
 }
 .sum-table th:first-child,
+.sum-table th.left,
 .sum-table td.left {
   text-align: left;
 }
@@ -861,11 +889,38 @@ input.input[type="date"]::-webkit-date-and-time-value {
   font-weight: 500;
   white-space: nowrap;
 }
+.sum-table .d-short {
+  display: none;
+}
 .sum-table tr.low {
   background: var(--accent-soft);
 }
 .low-mark {
   font-weight: 700;
+}
+/* Phones: compact date, stacked notes, smaller type so all 8 columns fit 360–390px. */
+@media (max-width: 419px) {
+  .sum-table {
+    font-size: 0.75rem;
+  }
+  .sum-table th,
+  .sum-table td {
+    padding: 4px 2px;
+  }
+  .sum-table thead th {
+    font-size: 0.7rem;
+  }
+  .sum-table .d-long {
+    display: none;
+  }
+  .sum-table .d-short {
+    display: inline;
+  }
+  .sum-table .d-note {
+    display: block;
+    font-size: 0.65rem;
+    line-height: 1.1;
+  }
 }
 .sum-list {
   margin: 0;
@@ -876,12 +931,16 @@ input.input[type="date"]::-webkit-date-and-time-value {
   .nav-item {
     font-size: 0.85rem;
   }
+  .hg-tick,
+  .hg-night-head {
+    font-size: 0.55rem;
+  }
   .sum-table {
     font-size: 0.7rem;
   }
   .sum-table th,
   .sum-table td {
-    padding: 4px 2px;
+    padding: 4px 1px;
   }
 }
 
@@ -896,6 +955,8 @@ input.input[type="date"]::-webkit-date-and-time-value {
     --accent: #000000;
     --accent-fg: #ffffff;
     --accent-soft: #ececec;
+    --cell-empty: #eeeeee;
+    --cell-none: #555555;
   }
   html,
   body {
@@ -919,6 +980,7 @@ input.input[type="date"]::-webkit-date-and-time-value {
   table,
   tr,
   .hgrid,
+  .sum-section.keep,
   .sum-list li {
     break-inside: avoid;
     page-break-inside: avoid;
@@ -933,12 +995,39 @@ input.input[type="date"]::-webkit-date-and-time-value {
   .table-wrap {
     overflow: visible;
   }
+  /* Grayscale-safe scale: 0 = pale grey with a light outline, then 4 clearly
+     separated greys to black; "not logged" = white with a dark outline. */
+  .l0 {
+    background: #eeeeee;
+    box-shadow: inset 0 0 0 1px #cccccc;
+  }
+  .l1 {
+    background: #bdbdbd;
+  }
+  .l2 {
+    background: #8a8a8a;
+  }
+  .l3 {
+    background: #4d4d4d;
+  }
+  .l4 {
+    background: #000000;
+  }
+  .none {
+    background: #ffffff;
+    box-shadow: inset 0 0 0 1px #555555;
+  }
+  .hg-night.l3,
+  .hg-night.l4 {
+    color: #ffffff;
+  }
   .l0,
   .l1,
   .l2,
   .l3,
   .l4,
   .none,
+  .hg-tick,
   .sum-table tr.low {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;

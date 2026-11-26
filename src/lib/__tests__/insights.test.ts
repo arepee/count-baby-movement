@@ -234,6 +234,25 @@ describe("buildInsights: grid and hourAvg", () => {
     expect(r.hourAvg[8]).toBeNull();
     expect(r.hourAvg[0]).toBeNull();
   });
+
+  it("marks today's awake slots that haven't ended (incl. in progress) as future", () => {
+    // NOW = Thu 14:30 IST: 07:30..13:30 ended; 14:30 (in progress, ends 15:30) .. 22:30 are future.
+    const r = buildInsights([], IST, NOW, 7);
+    expect(r.grid[0].future).toHaveLength(24);
+    const futureHours = r.grid[0].future.flatMap((f, h) => (f ? [h] : []));
+    expect(futureHours).toEqual([14, 15, 16, 17, 18, 19, 20, 21, 22]);
+    // Past days never have future cells.
+    for (const row of r.grid.slice(1)) expect(row.future.every((f) => !f)).toBe(true);
+    // Just after a slot ends, it is no longer future.
+    const r2 = buildInsights([], IST, "2026-11-26T10:00:00.000Z", 7); // 15:30 IST
+    expect(r2.grid[0].future[14]).toBe(false);
+    expect(r2.grid[0].future[15]).toBe(true);
+    // During the night (03:00 IST) every awake slot of today is still ahead.
+    const r3 = buildInsights([], IST, "2026-11-25T21:30:00.000Z", 7);
+    expect(r3.grid[0].future.flatMap((f, h) => (f ? [h] : []))).toEqual([
+      7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+    ]);
+  });
 });
 
 describe("buildInsights: weeks", () => {
