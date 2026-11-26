@@ -261,10 +261,11 @@ type InsightsResponse = {
     lowerThanUsual: boolean;   // usualByNow >= 10 && today.total < 0.5 * usualByNow && today's hours logged so far >= 50%
   };
   days: DayStat[];             // last `days` days, newest first, including today; days before tracking start omitted
-  grid: { key: string; cells: (number | null)[]; future: boolean[]; night: number | null }[];
+  grid: { key: string; cells: (number | null)[]; future: boolean[]; nightFuture: boolean; night: number | null }[];
     // last 7 days newest first; cells[h] (0..23) = total of the awake slot whose local START hour is h; null when no entry or skipped.
     // future[h] (24 values) = true when the awake slot of that day starting at local hour h (current settings) hasn't ENDED yet
     // at `now` — the in-progress slot counts as future. Only today's row can have any; clients draw these blank, not as "not logged".
+    // nightFuture = true when the night slot counted on that day hasn't ended yet (only possible for today, e.g. opened at 3 AM); drawn blank.
   hourAvg: (number | null)[];  // 24 values: average of non-null grid cells per hour over those 7 days
   weeks: { label: string; week: number | null; startKey: string; endKey: string; avgPerDay: number; days: number }[];
     // newest first, covering `days`. With a due date: grouped by pregnancy week, label "Week 31". Without: calendar weeks starting Monday, label "24 Nov".

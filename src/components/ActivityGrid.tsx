@@ -112,14 +112,23 @@ export default function ActivityGrid({ grid, hourAvg, settings }: Props) {
               />
             );
           })}
-          <span
-            className={`hg-night ${level(r.night, nightMax)}`}
-            role="cell"
-            title={`${keyShort(r.key)}, night: ${fmtCount(r.night)}`}
-            aria-label={`${keyShort(r.key)}, night: ${fmtCount(r.night)}`}
-          >
-            {r.night ?? "–"}
-          </span>
+          {r.night === null && r.nightFuture ? (
+            <span
+              className="hg-night future"
+              role="cell"
+              title={`${keyShort(r.key)}, night: not yet`}
+              aria-label={`${keyShort(r.key)}, night: not yet`}
+            />
+          ) : (
+            <span
+              className={`hg-night ${level(r.night, nightMax)}`}
+              role="cell"
+              title={`${keyShort(r.key)}, night: ${fmtCount(r.night)}`}
+              aria-label={`${keyShort(r.key)}, night: ${fmtCount(r.night)}`}
+            >
+              {r.night ?? "–"}
+            </span>
+          )}
         </div>
       ))}
       <div className="hg-row hg-avg" role="row">

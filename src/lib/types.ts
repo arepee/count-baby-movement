@@ -76,7 +76,7 @@ export type InsightsResponse = {
   days: DayStat[]; // last `days` days, newest first, including today; days before tracking start omitted
   // Last 7 days newest first; cells[h] by local START hour. future[h] = true when that
   // awake slot of the day hasn't ended yet (in-progress included; only ever on today's row).
-  grid: { key: string; cells: (number | null)[]; future: boolean[]; night: number | null }[];
+  grid: { key: string; cells: (number | null)[]; future: boolean[]; nightFuture: boolean; night: number | null }[];
   hourAvg: (number | null)[]; // 24 values: mean of non-null grid cells per hour
   weeks: { label: string; week: number | null; startKey: string; endKey: string; avgPerDay: number; days: number }[]; // newest first
 };

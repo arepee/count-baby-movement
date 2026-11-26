@@ -253,6 +253,15 @@ describe("buildInsights: grid and hourAvg", () => {
       7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
     ]);
   });
+
+  it("marks tonight's night slot as future until it ends", () => {
+    // 03:00 IST Thu: the night ending Thu 07:30 is still running.
+    expect(buildInsights([], IST, "2026-11-25T21:30:00.000Z", 7).grid[0].nightFuture).toBe(true);
+    // 14:30 IST Thu: that night has ended (unlogged = missed, not future).
+    const r = buildInsights([], IST, NOW, 7);
+    expect(r.grid[0].nightFuture).toBe(false);
+    for (const row of r.grid) expect(row.nightFuture).toBe(false);
+  });
 });
 
 describe("buildInsights: weeks", () => {

@@ -198,13 +198,15 @@ export function buildInsights(entries: Entry[], settings: Settings, now: Ms, day
       // Awake slots of this day (current settings) that haven't ended yet; the
       // in-progress slot counts as future. Only today (and never past days) has any.
       const future: boolean[] = Array(24).fill(false);
+      let nightFuture = false; // tonight's sleep slot hasn't ended yet
       if (key === todayKey) {
         for (const slot of daySlots(key, settings)) {
-          if (slot.isSleep || toMs(slot.end) <= nowMs) continue;
-          future[toLocal(toMs(slot.start), tz).hour] = true;
+          if (toMs(slot.end) <= nowMs) continue;
+          if (slot.isSleep) nightFuture = true;
+          else future[toLocal(toMs(slot.start), tz).hour] = true;
         }
       }
-      return { key, cells, future, night: dayStat(key, listFor(key)).night };
+      return { key, cells, future, nightFuture, night: dayStat(key, listFor(key)).night };
     });
   const hourAvg = Array.from({ length: 24 }, (_, h) => {
     const vals = grid.map((r) => r.cells[h]).filter((v): v is number => v !== null);
