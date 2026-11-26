@@ -616,3 +616,331 @@ input.input[type="time"]::-webkit-date-and-time-value {
 .seg-other {
   background: var(--muted);
 }
+
+/* ---------- Insights ---------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.preg-week {
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.today-total {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.today-total .num {
+  font-size: 2.6rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.notice {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-weight: 600;
+}
+
+/* Active hours grid: label + 24 hour columns + night column. */
+.hgrid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.hg-row {
+  display: grid;
+  grid-template-columns: 30px repeat(24, minmax(0, 1fr)) 30px;
+  column-gap: 1px;
+  align-items: center;
+}
+.hg-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.hg-tick {
+  grid-column: span 6;
+  font-size: 0.65rem;
+  color: var(--muted);
+  border-left: 1px solid var(--border);
+  padding-left: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.hg-night-head {
+  font-size: 0.6rem;
+  color: var(--muted);
+  text-align: center;
+  margin-left: 4px;
+  overflow: hidden;
+}
+.hg-cell {
+  height: 16px;
+  border-radius: 2px;
+  min-width: 0;
+}
+.hg-cell.sep,
+.hg-tick.sep {
+  margin-left: 3px;
+}
+.hg-night {
+  height: 16px;
+  margin-left: 4px;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  color: var(--fg);
+}
+.hg-avg {
+  margin-top: 3px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.hg-avg .hg-label {
+  font-weight: 700;
+}
+.l0 {
+  background: var(--border);
+}
+.l1 {
+  background: color-mix(in srgb, var(--accent) 28%, var(--surface));
+}
+.l2 {
+  background: color-mix(in srgb, var(--accent) 52%, var(--surface));
+}
+.l3 {
+  background: color-mix(in srgb, var(--accent) 76%, var(--surface));
+}
+.l4 {
+  background: var(--accent);
+}
+.hg-night.l3,
+.hg-night.l4 {
+  color: var(--accent-fg);
+}
+/* Awake hour with no entry (or skipped): outlined. Sleep-window hours: blank. */
+.none {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.hg-cell.off.none {
+  box-shadow: none;
+}
+.hg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.hg-sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.hg-sw.none {
+  margin-left: 10px;
+}
+
+.week-row {
+  display: grid;
+  grid-template-columns: minmax(4.5rem, auto) minmax(0, 1fr) 4.2rem;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 0;
+}
+.week-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.week-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+.week-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+}
+.week-val {
+  text-align: right;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.date-row {
+  display: flex;
+  gap: 8px;
+}
+.date-row .input {
+  flex: 1;
+}
+input.input[type="date"] {
+  display: block;
+  -webkit-appearance: none;
+}
+input.input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+/* ---------- Doctor summary ---------- */
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sum-meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px 16px;
+}
+.sum-meta dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.sum-meta dd {
+  margin: 0;
+  font-weight: 600;
+}
+.sum-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.sum-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.sum-table th,
+.sum-table td {
+  padding: 4px 3px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+}
+.sum-table thead th {
+  color: var(--muted);
+  font-weight: 600;
+  vertical-align: bottom;
+}
+.sum-table th:first-child,
+.sum-table td.left {
+  text-align: left;
+}
+.sum-table tbody th {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.sum-table tr.low {
+  background: var(--accent-soft);
+}
+.low-mark {
+  font-weight: 700;
+}
+.sum-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+@media (max-width: 359px) {
+  .nav-item {
+    font-size: 0.85rem;
+  }
+  .sum-table {
+    font-size: 0.7rem;
+  }
+  .sum-table th,
+  .sum-table td {
+    padding: 4px 2px;
+  }
+}
+
+@media print {
+  :root {
+    color-scheme: light;
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --border: #b8b8b8;
+    --fg: #000000;
+    --muted: #333333;
+    --accent: #000000;
+    --accent-fg: #ffffff;
+    --accent-soft: #ececec;
+  }
+  html,
+  body {
+    background: #fff;
+    color: #000;
+    font-size: 12pt;
+  }
+  .app {
+    max-width: none;
+    padding: 0;
+  }
+  .bottom-nav,
+  .no-print,
+  .btn {
+    display: none !important;
+  }
+  a {
+    color: #000;
+    text-decoration: none;
+  }
+  table,
+  tr,
+  .hgrid,
+  .sum-list li {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .sum-section h2 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  .sum-table {
+    font-size: 10pt;
+  }
+  .table-wrap {
+    overflow: visible;
+  }
+  .l0,
+  .l1,
+  .l2,
+  .l3,
+  .l4,
+  .none,
+  .sum-table tr.low {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

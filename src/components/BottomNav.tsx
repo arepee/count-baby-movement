@@ -6,12 +6,14 @@ import { usePathname } from "next/navigation";
 const items = [
   { href: "/", label: "Log" },
   { href: "/history", label: "History" },
+  { href: "/insights", label: "Insights" },
   { href: "/settings", label: "Settings" },
 ];
 
 export default function BottomNav() {
   const pathname = usePathname();
-  if (pathname === "/login") return null;
+  // No nav on the login screen or the printable doctor summary.
+  if (pathname === "/login" || pathname.startsWith("/insights/summary")) return null;
   return (
     <nav className="bottom-nav" aria-label="Main">
       {items.map((it) => {

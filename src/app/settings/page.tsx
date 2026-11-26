@@ -21,6 +21,7 @@ export default function SettingsPage() {
   const [sleepStart, setSleepStart] = useState("23:30");
   const [sleepEnd, setSleepEnd] = useState("07:30");
   const [timezone, setTimezone] = useState("");
+  const [dueDate, setDueDate] = useState(""); // "YYYY-MM-DD" or "" for none
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [zones, setZones] = useState<string[]>([]);
@@ -33,6 +34,7 @@ export default function SettingsPage() {
         setSleepStart(r.settings.sleepStart);
         setSleepEnd(r.settings.sleepEnd);
         setTimezone(r.settings.timezone || deviceTimezone());
+        setDueDate(r.settings.dueDate ?? "");
         setLoaded(true);
       } catch (e) {
         setMsg({ ok: false, text: errorMessage(e) });
@@ -47,11 +49,12 @@ export default function SettingsPage() {
     try {
       const r = await api<{ settings: Settings }>("/api/settings", {
         method: "PUT",
-        body: { sleepStart, sleepEnd, timezone: timezone.trim() },
+        body: { sleepStart, sleepEnd, timezone: timezone.trim(), dueDate: dueDate || null },
       });
       setSleepStart(r.settings.sleepStart);
       setSleepEnd(r.settings.sleepEnd);
       setTimezone(r.settings.timezone);
+      setDueDate(r.settings.dueDate ?? "");
       setMsg({ ok: true, text: "Saved" });
     } catch (e) {
       setMsg({ ok: false, text: errorMessage(e) });
@@ -123,6 +126,29 @@ export default function SettingsPage() {
           )}
         </div>
 
+        <div className="field">
+          <label htmlFor="dueDate">Due date (optional)</label>
+          <div className="date-row">
+            <input
+              id="dueDate"
+              className="input"
+              type="date"
+              value={dueDate}
+              disabled={!loaded}
+              onChange={(e) => setDueDate(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={!loaded || !dueDate}
+              onClick={() => setDueDate("")}
+            >
+              Clear
+            </button>
+          </div>
+          <p className="muted small">Shows the pregnancy week on Insights and the doctor summary.</p>
+        </div>
+
         <button type="submit" className="btn primary block" disabled={!loaded || saving}>
           {saving ? "Saving…" : "Save"}
         </button>
@@ -136,6 +162,7 @@ export default function SettingsPage() {
           setSleepStart(st.sleepStart);
           setSleepEnd(st.sleepEnd);
           setTimezone(st.timezone);
+          setDueDate(st.dueDate ?? "");
           setMsg(null);
         }}
       />
