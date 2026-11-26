@@ -1,0 +1,224 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { api, errorMessage } from "@/client/api";
+import { sendTest } from "@/client/push";
+import { usePush } from "@/client/usePush";
+import type { Settings } from "@/client/types";
+
+function deviceTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+function supportedTimezones(): string[] {
+  const intl = Intl as typeof Intl & { supportedValuesOf?: (k: string) => string[] };
+  try {
+    return intl.supportedValuesOf ? intl.supportedValuesOf("timeZone") : [];
+  } catch {
+    return [];
+  }
+}
+
+export default function SettingsPage() {
+  const [loaded, setLoaded] = useState(false);
+  const [sleepStart, setSleepStart] = useState("23:30");
+  const [sleepEnd, setSleepEnd] = useState("07:30");
+  const [timezone, setTimezone] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [zones, setZones] = useState<string[]>([]);
+
+  useEffect(() => {
+    setZones(supportedTimezones());
+    (async () => {
+      try {
+        const r = await api<{ settings: Settings }>("/api/settings");
+        setSleepStart(r.settings.sleepStart);
+        setSleepEnd(r.settings.sleepEnd);
+        setTimezone(r.settings.timezone || deviceTimezone());
+        setLoaded(true);
+      } catch (e) {
+        setMsg({ ok: false, text: errorMessage(e) });
+      }
+    })();
+  }, []);
+
+  const save = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    setSaving(true);
+    setMsg(null);
+    try {
+      const r = await api<{ settings: Settings }>("/api/settings", {
+        method: "PUT",
+        body: { sleepStart, sleepEnd, timezone: timezone.trim() },
+      });
+      setSleepStart(r.settings.sleepStart);
+      setSleepEnd(r.settings.sleepEnd);
+      setTimezone(r.settings.timezone);
+      setMsg({ ok: true, text: "Saved" });
+    } catch (e) {
+      setMsg({ ok: false, text: errorMessage(e) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const devTz = useMemo(() => (loaded ? deviceTimezone() : ""), [loaded]);
+
+  return (
+    <>
+      <h1>Settings</h1>
+
+      <form className="card" onSubmit={save}>
+        <h2>Sleep window</h2>
+        <p className="muted small">The whole sleep window is logged as one entry.</p>
+        <div className="row-2">
+          <div className="field">
+            <label htmlFor="sleepStart">Sleep starts</label>
+            <input
+              id="sleepStart"
+              className="input"
+              type="time"
+              required
+              value={sleepStart}
+              disabled={!loaded}
+              onChange={(e) => setSleepStart(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="sleepEnd">Wake up</label>
+            <input
+              id="sleepEnd"
+              className="input"
+              type="time"
+              required
+              value={sleepEnd}
+              disabled={!loaded}
+              onChange={(e) => setSleepEnd(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="field">
+          <label htmlFor="tz">Timezone</label>
+          <input
+            id="tz"
+            className="input"
+            type="text"
+            list="tz-list"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            required
+            value={timezone}
+            disabled={!loaded}
+            onChange={(e) => setTimezone(e.target.value)}
+          />
+          <datalist id="tz-list">
+            {zones.map((z) => (
+              <option key={z} value={z} />
+            ))}
+          </datalist>
+          {loaded && devTz !== timezone && (
+            <button type="button" className="btn" onClick={() => setTimezone(devTz)}>
+              Use this device&apos;s timezone ({devTz})
+            </button>
+          )}
+        </div>
+
+        <button type="submit" className="btn primary block" disabled={!loaded || saving}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+        {msg && <p className={msg.ok ? "success" : "error"}>{msg.text}</p>}
+      </form>
+
+      <NotificationsSection />
+
+      <LogoutSection />
+    </>
+  );
+}
+
+function NotificationsSection() {
+  const { status, busy, error, enable, disable } = usePush();
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const test = async () => {
+    setTesting(true);
+    setTestMsg(null);
+    try {
+      const n = await sendTest();
+      setTestMsg({
+        ok: n > 0,
+        text: n > 0 ? `Sent to ${n} device${n === 1 ? "" : "s"}` : "No subscribed devices",
+      });
+    } catch (e) {
+      setTestMsg({ ok: false, text: errorMessage(e) });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const statusText: Record<string, string> = {
+    subscribed: "On for this device",
+    "not-subscribed": "Off for this device",
+    denied: "Blocked — allow notifications in system settings",
+    unsupported: "Not supported in this browser",
+    "needs-install": "Add to Home Screen first, then open the app from there",
+  };
+
+  return (
+    <section className="card">
+      <h2>Notifications</h2>
+      <p className={status === "subscribed" ? "" : "muted"}>
+        {status === null ? "Checking…" : statusText[status]}
+      </p>
+      {status === "not-subscribed" && (
+        <button type="button" className="btn primary block" disabled={busy} onClick={enable}>
+          {busy ? "Enabling…" : "Enable"}
+        </button>
+      )}
+      {status === "subscribed" && (
+        <button type="button" className="btn block" disabled={busy} onClick={disable}>
+          {busy ? "Disabling…" : "Disable"}
+        </button>
+      )}
+      <button type="button" className="btn block" disabled={testing} onClick={test}>
+        {testing ? "Sending…" : "Send test"}
+      </button>
+      {error && <p className="error">{error}</p>}
+      {testMsg && <p className={testMsg.ok ? "success" : "error"}>{testMsg.text}</p>}
+    </section>
+  );
+}
+
+function LogoutSection() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const logout = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/api/logout", { method: "POST" });
+      window.location.replace("/login");
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <button type="button" className="btn danger block" disabled={busy} onClick={logout}>
+        {busy ? "Logging out…" : "Log out"}
+      </button>
+      {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
