@@ -278,3 +278,46 @@ Pure aggregation lives in `src/lib/insights.ts` (unit-tested); the route only lo
 - **Doctor summary** `/insights/summary`: print-friendly (white background and the light palette even when the device is in dark mode, no nav; `@media print` hides buttons; in print the grid's 5 shades + "not logged" use grayscale-distinct fills, and each section's heading/caption/content is kept together), title, date range, due date / pregnancy week, a table of the last 28 days (date, kicks, rolls, other, total, night, "Log h", "Skip h"; under 420px wide the date drops the weekday ("Nov 26") and the type shrinks so all columns fit a 360px phone without sideways scrolling), weekly averages, the 7-day grid, flagged low days (day total < 50% of the mean of the previous 7 days with data), a "Print" button (`window.print()`), and a "Back" link.
 - **Settings**: a "Due date" date input (optional, clearable), saved with the other settings.
 - **Timezone names**: the client canonicalises IANA names before comparing or saving the device timezone — browsers may report legacy aliases (Chromium: "Asia/Calcutta"), which are mapped to the modern name ("Asia/Kolkata"); "Use this device's timezone" is only offered when the device zone differs from the saved one after canonicalisation.
+
+## Live taps (v3)
+
+She can record each movement the moment it happens. Taps are a **draft**: the hour still has to be confirmed after it ends (same pending flow and reminders), with the steppers pre-filled from that hour's taps. Confirmed entries remain the only source for History, Insights, CSV and the summary.
+
+### DB
+```sql
+create table if not exists taps (
+  id serial primary key,
+  at timestamptz not null default now(),
+  kind text not null check (kind in ('kick','roll','other'))
+);
+create index if not exists taps_at_idx on taps (at);
+```
+(add to SCHEMA_SQL / schema.sql / scripts/migrate.mjs)
+
+### Types
+```ts
+type TapKind = "kick" | "roll" | "other";
+type Tap = { id: number; at: string; kind: TapKind };
+type Counts = { kicks: number; rolls: number; other: number };
+```
+`StateResponse` gains:
+- `live: Counts` — taps inside the current (in-progress) slot.
+- `lastTap: Tap | null` — most recent tap overall.
+- `todayTaps: Tap[]` — taps since local midnight (settings tz), newest first, max 200.
+- `prefill: Record<string, Counts>` — keyed by pending slot `start` (ISO, same string as in `pending`); counts of taps with `at` in `[start, end)`; only slots with ≥1 tap appear.
+
+### API (session required)
+| Method & path | Body | Response |
+|---|---|---|
+| `POST /api/taps` | `{kind}` | `{tap, live: Counts}` — server time is the tap time. Allowed any time (awake or night). 400 on bad kind. |
+| `DELETE /api/taps/:id` | — | `{ok:true, live: Counts}` — undo; 404 unknown id. Only taps whose slot has no confirmed entry may be deleted (else 409 "That hour is already saved"). |
+
+Taps are ignored (not shown, not prefilling) for slots that already have an entry. Taps before tracking start are still stored but never prefill.
+
+### Reminders
+When the latest pending slot has taps, the push body becomes e.g. "Confirm 3 kicks, 1 roll for 2:30–3:30 PM" (omit zero kinds; "Confirm the night: 5 kicks" for the night slot). Multi-pending text unchanged.
+
+### UI (Log screen)
+- **Right now** card, always at the top of Log (also while there is a backlog, above the pending card): label of the current slot ("2:30–3:30 PM" or "Night"), three large buttons **Kick**, **Roll**, **Other** (each ≥72px tall, full width row of three, count for this hour shown on each button), a line "Last movement 12 min ago · Kick" (relative time, updates every 30s; "No movements tapped yet today" when none), and an **Undo** button that deletes the most recent tap still in an unsaved hour (disabled otherwise). Taps are optimistic: increment instantly, roll back with an inline error if the request fails. Rapid taps must each register (no disabling between taps). Brief visual press feedback.
+- **Pending card**: steppers start from `prefill[slot.start]` when present, with a small note "From N taps — add any you missed". Save/Didn't track unchanged.
+- **Today's taps**: on the caught-up view, a collapsible list (collapsed by default) of `todayTaps`: time + kind, newest first.
