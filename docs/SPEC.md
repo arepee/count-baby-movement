@@ -230,3 +230,47 @@ timezone). Logout button.
 - **Frontend agent**: `src/app/page.tsx`, `src/app/(pages)/**` or `src/app/history|settings|login/**`, `src/app/layout.tsx`, `src/app/globals.css`, `src/components/**`, client-side push subscribe helper `src/client/**`.
 - **Platform agent**: `public/sw.js`, `public/icons/**`, `public/apple-touch-icon.png`, `src/app/manifest.ts`, `.github/workflows/cron.yml`, `.env.example`, `README.md`, `scripts/**` (e.g. `scripts/vapid.mjs` to generate keys, `scripts/migrate.mjs`).
 Don't edit files outside your ownership; if you need something from another area, code against this spec.
+
+## Insights (v2)
+
+New bottom-nav tab **Insights** (`/insights`) plus a printable **Doctor summary** (`/insights/summary`).
+Nav becomes: Log · History · Insights · Settings.
+
+### Settings: due date
+- Column `due_date date` (nullable), added with `alter table settings add column if not exists due_date date`.
+- `Settings.dueDate: string | null` ("YYYY-MM-DD"). `PUT /api/settings` accepts optional `dueDate` (string or null to clear); validate a real date within roughly −30 to +300 days of today.
+- Pregnancy age = 280 days − (dueDate − today in settings tz). `{week, day}` = floor(days/7), days%7. Null if no due date or the result is outside 0..44 weeks.
+
+### `GET /api/insights?days=28` (session required; days 7..120, default 28)
+Day keys follow the existing rule: the night slot belongs to the day it ENDS; awake slots to the day they start (local, settings tz). Skipped entries count as 0 movements and as skipped hours.
+```ts
+type DayStat = {
+  key: string;            // "YYYY-MM-DD"
+  kicks: number; rolls: number; other: number; total: number;
+  loggedHours: number;    // hours covered by non-skipped entries (night counts its real length)
+  skippedHours: number;
+  night: number | null;   // total of the night slot counted on this day (null if none/skipped)
+};
+type InsightsResponse = {
+  now: string;
+  settings: Settings;
+  pregnancy: { week: number; day: number } | null;
+  today: DayStat & {
+    usualByNow: number | null; // mean total over the previous 7 days, counting only slots that ENDED by the same local time of day; days with < 50% of those hours logged are excluded; null if < 3 qualifying days
+    usualDays: number;         // how many days went into usualByNow
+    lowerThanUsual: boolean;   // usualByNow >= 10 && today.total < 0.5 * usualByNow && today's hours logged so far >= 50%
+  };
+  days: DayStat[];             // last `days` days, newest first, including today; days before tracking start omitted
+  grid: { key: string; cells: (number | null)[]; night: number | null }[];
+    // last 7 days newest first; cells[h] (0..23) = total of the awake slot whose local START hour is h; null when no entry or skipped
+  hourAvg: (number | null)[];  // 24 values: average of non-null grid cells per hour over those 7 days
+  weeks: { label: string; week: number | null; startKey: string; endKey: string; avgPerDay: number; days: number }[];
+    // newest first, covering `days`. With a due date: grouped by pregnancy week, label "Week 31". Without: calendar weeks starting Monday, label "24 Nov".
+};
+```
+Pure aggregation lives in `src/lib/insights.ts` (unit-tested); the route only loads entries + settings.
+
+### UI
+- **Insights tab** (top to bottom): pregnancy week header if set ("Week 31 + 2 days"); **Today vs usual** card (today's total so far with K/R/O, "usually N by this time", logged hours) and, when `lowerThanUsual`, a calm notice: "Fewer movements than usual so far. If you're worried, call your maternity unit now — don't wait." A static line is always shown at the bottom of the card: "There's no set number of movements. What matters is a change from your baby's usual pattern."; **Active hours** grid: rows = last 7 days (newest at top, short weekday label), 24 columns grouped visibly into the awake slots, cell shade by count (accent scale, empty = border colour, skipped/none = hatched or blank), night total as a separate last column, average row at the bottom; **Weekly** list: label, avg/day, small inline bar; link button "Doctor summary".
+- **Doctor summary** `/insights/summary`: print-friendly (white background, no nav; `@media print` hides buttons), title, date range, due date / pregnancy week, a table of the last 28 days (date, kicks, rolls, other, total, night, logged h, skipped h), weekly averages, the 7-day grid, flagged low days (day total < 50% of the mean of the previous 7 days with data), a "Print" button (`window.print()`), and a "Back" link.
+- **Settings**: a "Due date" date input (optional, clearable), saved with the other settings.
