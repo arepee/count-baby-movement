@@ -13,13 +13,16 @@ import {
   formatTime,
   sumTotals,
 } from "@/client/format";
-import type { Entry, Slot, StateResponse } from "@/client/types";
-import { CountSteppers, type Counts } from "@/components/Stepper";
+import type { Counts, Entry, Slot, StateResponse, Tap } from "@/client/types";
+import { CountSteppers } from "@/components/Stepper";
 import EntryCounts from "@/components/EntryCounts";
+import LiveTaps from "@/components/LiveTaps";
 import NotificationCard from "@/components/NotificationCard";
+import TodayTaps from "@/components/TodayTaps";
 
 const REFRESH_MS = 60_000;
 const TICK_MS = 15_000;
+const ZERO: Counts = { kicks: 0, rolls: 0, other: 0 };
 
 export default function LogPage() {
   const [data, setData] = useState<StateResponse | null>(null);
@@ -31,6 +34,8 @@ export default function LogPage() {
   // First run: initialise tracking (timezone + tracking_start). Shared promise so
   // overlapping loads don't POST twice; cleared on failure so Retry can redo it.
   const setupPromise = useRef<Promise<unknown> | null>(null);
+  // True while live-tap requests are queued/in flight (see LiveTaps).
+  const tapsBusy = useRef(false);
 
   const load = useCallback(async () => {
     const id = ++reqId.current;
@@ -52,7 +57,14 @@ export default function LogPage() {
         s = await api<StateResponse>("/api/state");
         if (id !== reqId.current) return;
       }
-      setData(s);
+      const fresh = s;
+      setData((prev) =>
+        // While taps are in flight, a background refetch may or may not include them: keep
+        // our tap view for the same slot; LiveTaps refetches again once its queue drains.
+        tapsBusy.current && prev && prev.current.start === fresh.current.start
+          ? { ...fresh, live: prev.live, lastTap: prev.lastTap, todayTaps: prev.todayTaps }
+          : fresh,
+      );
       setSkew(new Date(s.now).getTime() - Date.now());
       setNowMs(Date.now());
       setLoadError(null);
@@ -89,6 +101,16 @@ export default function LogPage() {
   const serverNow = nowMs + skew;
   const currentEnd = data ? new Date(data.current.end).getTime() : 0;
 
+  // Wake exactly when the current slot ends (the 15s tick could be late), so live counts
+  // reset and the refetch below fires promptly.
+  useEffect(() => {
+    if (!data) return;
+    const ms = currentEnd - (Date.now() + skew);
+    if (ms <= 0) return;
+    const t = window.setTimeout(() => setNowMs(Date.now()), Math.min(ms + 50, 2 ** 31 - 1));
+    return () => window.clearTimeout(t);
+  }, [data, currentEnd, skew]);
+
   // When the current slot ends, it becomes pending: refetch (once per slot end).
   const endTriggered = useRef(0);
   useEffect(() => {
@@ -114,6 +136,34 @@ export default function LogPage() {
     [load],
   );
 
+  const onTapConfirmed = useCallback((tap: Tap, live: Counts) => {
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            live,
+            lastTap: tap,
+            todayTaps: [tap, ...d.todayTaps.filter((t) => t.id !== tap.id)].slice(0, 200),
+          }
+        : d,
+    );
+  }, []);
+
+  const onTapRemoved = useCallback((id: number, live: Counts) => {
+    setData((d) => {
+      if (!d) return d;
+      const todayTaps = d.todayTaps.filter((t) => t.id !== id);
+      return {
+        ...d,
+        live,
+        todayTaps,
+        lastTap: d.lastTap?.id === id ? (todayTaps[0] ?? null) : d.lastTap,
+      };
+    });
+  }, []);
+
+  const onTapsSettled = useCallback(() => void load(), [load]);
+
   if (!data) {
     return (
       <>
@@ -138,12 +188,33 @@ export default function LogPage() {
   return (
     <>
       {loadError && <p className="error">{loadError}</p>}
+      <LiveTaps
+        current={data.current}
+        live={data.live ?? ZERO}
+        lastTap={data.lastTap ?? null}
+        todayTaps={data.todayTaps ?? []}
+        recent={data.recent}
+        tz={tz}
+        nowMs={serverNow}
+        skewMs={skew}
+        busyRef={tapsBusy}
+        onTapConfirmed={onTapConfirmed}
+        onTapRemoved={onTapRemoved}
+        onSettled={onTapsSettled}
+      />
       {pending.length > 0 ? (
         <>
           <div className="banner">
             {pending.length} {pending.length === 1 ? "hour" : "hours"} to log
           </div>
-          <PendingEditor key={pending[0].start} slot={pending[0]} tz={tz} onSaved={onSaved} onStale={load} />
+          <PendingEditor
+            key={pending[0].start}
+            slot={pending[0]}
+            prefill={data.prefill?.[pending[0].start]}
+            tz={tz}
+            onSaved={onSaved}
+            onStale={load}
+          />
         </>
       ) : (
         <CaughtUp data={data} tz={tz} remainingMs={currentEnd - serverNow} nowMs={serverNow} />
@@ -155,16 +226,29 @@ export default function LogPage() {
 
 function PendingEditor({
   slot,
+  prefill,
   tz,
   onSaved,
   onStale,
 }: {
   slot: Slot;
+  /** Counts from this hour's live taps, if any. */
+  prefill: Counts | undefined;
   tz: string;
   onSaved: (slot: Slot, entry: Entry) => void;
   onStale: () => void;
 }) {
-  const [counts, setCounts] = useState<Counts>({ kicks: 0, rolls: 0, other: 0 });
+  const [counts, setCounts] = useState<Counts>(prefill ?? ZERO);
+  const [touched, setTouched] = useState(false);
+  // Prefill can arrive or change after mount (a tap confirmed just after the hour ended, or
+  // undone): follow it until the user edits the steppers themselves.
+  const prefillKey = prefill ? `${prefill.kicks}/${prefill.rolls}/${prefill.other}` : "";
+  const [seenPrefill, setSeenPrefill] = useState(prefillKey);
+  if (prefillKey !== seenPrefill) {
+    setSeenPrefill(prefillKey);
+    if (!touched) setCounts(prefill ?? ZERO);
+  }
+  const tapTotal = prefill ? prefill.kicks + prefill.rolls + prefill.other : 0;
   const [saving, setSaving] = useState<null | "save" | "skip">(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -191,8 +275,20 @@ function PendingEditor({
       <div>
         <div className="slot-label">{formatSlotLabel(slot, tz)}</div>
         {slot.isSleep && <p className="muted small">One entry for the whole night</p>}
+        {tapTotal > 0 && (
+          <p className="muted small">
+            From {tapTotal} {tapTotal === 1 ? "tap" : "taps"} — add any you missed
+          </p>
+        )}
       </div>
-      <CountSteppers counts={counts} onChange={setCounts} disabled={saving !== null} />
+      <CountSteppers
+        counts={counts}
+        onChange={(c) => {
+          setTouched(true);
+          setCounts(c);
+        }}
+        disabled={saving !== null}
+      />
       <div className="btn-col">
         <button
           type="button"
@@ -266,6 +362,8 @@ function CaughtUp({
           </div>
         </div>
       </div>
+
+      <TodayTaps taps={data.todayTaps ?? []} tz={tz} />
 
       {data.recent.length > 0 && (
         <div className="card">

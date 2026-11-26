@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { Counts } from "@/client/types";
 
 const MAX = 999;
 
@@ -87,7 +88,7 @@ export function Stepper({
   );
 }
 
-export type Counts = { kicks: number; rolls: number; other: number };
+export type { Counts };
 
 export function CountSteppers({
   counts,

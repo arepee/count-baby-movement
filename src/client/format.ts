@@ -237,3 +237,27 @@ export function groupByDay<T extends EntryLike>(
   }
   return groups;
 }
+
+/** "2:30–3:30 PM" (meridiem shown once when both ends share it) or "11:30 AM–12:30 PM". */
+export function formatCompactRange(slot: SlotLike, tz: string): string {
+  const a = formatTime(slot.start, tz);
+  const b = formatTime(slot.end, tz);
+  const ma = a.slice(-2);
+  if (ma === b.slice(-2)) return `${a.slice(0, -3)}–${b}`;
+  return `${a}–${b}`;
+}
+
+/** "just now" / "12 min ago" / "2 h 5 min ago"; older than a day: "Tue 3:10 PM". */
+export function formatAgo(iso: string, nowMs: number, tz: string): string {
+  const ms = nowMs - new Date(iso).getTime();
+  if (ms < 60_000) return "just now";
+  if (ms < 24 * 3600_000) return `${formatDuration(ms)} ago`;
+  return `${formatWeekday(iso, tz)} ${formatTime(iso, tz)}`;
+}
+
+const KIND_LABELS = { kick: "Kick", roll: "Roll", other: "Other" } as const;
+
+/** "Kick" / "Roll" / "Other" */
+export function tapKindLabel(kind: keyof typeof KIND_LABELS): string {
+  return KIND_LABELS[kind] ?? kind;
+}
