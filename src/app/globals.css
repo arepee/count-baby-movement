@@ -1155,3 +1155,27 @@ input.input[type="date"]::-webkit-date-and-time-value {
     print-color-adjust: exact;
   }
 }
+
+/* ---------- Laptop-only reset (Settings) ---------- */
+.desktop-only {
+  display: none;
+}
+@media (min-width: 900px) and (hover: hover) and (pointer: fine) {
+  .desktop-only {
+    display: block;
+  }
+}
+.danger-zone {
+  border: 1px solid var(--danger, #c92a2a);
+}
+.reset-step {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

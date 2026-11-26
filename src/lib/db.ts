@@ -184,6 +184,25 @@ export async function setupTracking(timezone: string): Promise<SettingsRecord> {
 }
 
 /**
+ * Erase all logged data (entries + taps) and restart tracking from now, in one
+ * transaction. Settings, login state and push subscriptions are kept.
+ */
+export async function resetAllData(): Promise<SettingsRecord> {
+  await getSettings(); // make sure the row exists
+  const db = sql();
+  const results = await db.transaction([
+    db.query("delete from entries"),
+    db.query("delete from taps"),
+    db.query(
+      `update settings set tracking_start = now(), initialized = true,
+         last_notified_slot = null, last_notified_at = null
+       where id = 1 returning *`,
+    ),
+  ]);
+  return rowToSettings((results[2] as Row[])[0]);
+}
+
+/**
  * Record a failed login. Returns the updated record; `lockedUntil` is set (by the DB
  * clock) once `failedLogins` reaches LOCKOUT_THRESHOLD, see lockoutMinutes().
  */

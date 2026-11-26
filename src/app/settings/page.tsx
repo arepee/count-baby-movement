@@ -170,6 +170,8 @@ export default function SettingsPage() {
       <NotificationsSection />
 
       <LogoutSection />
+
+      <ResetSection />
     </>
   );
 }
@@ -302,6 +304,121 @@ function LogoutSection() {
         {busy ? "Logging out…" : "Log out"}
       </button>
       {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
+/**
+ * Laptop-only (CSS: .desktop-only) "erase all data" with two confirmations.
+ * Step 1 explains; step 2 needs the word RESET typed. The final action downloads
+ * a CSV backup first and only erases once the backup has downloaded.
+ */
+function ResetSection() {
+  const [step, setStep] = useState<0 | 1 | 2>(0);
+  const [phrase, setPhrase] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const cancel = () => {
+    setStep(0);
+    setPhrase("");
+  };
+
+  const eraseAll = async () => {
+    if (phrase !== "RESET") return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      // 1) Backup: download the full CSV before touching anything.
+      const res = await fetch("/api/export.csv", { cache: "no-store" });
+      if (res.status === 401) {
+        window.location.replace("/login");
+        return;
+      }
+      if (!res.ok) throw new Error("Couldn't download the backup, nothing was erased");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `baby-movement-backup-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      // 2) Erase.
+      await api("/api/reset", { method: "POST", body: { confirm: "RESET" } });
+      cancel();
+      setMsg({ ok: true, text: "All data erased. A backup CSV was downloaded. Tracking starts from now." });
+    } catch (e) {
+      setMsg({ ok: false, text: errorMessage(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card danger-zone desktop-only" aria-label="Reset all data">
+      <h2>Reset all data</h2>
+      <p className="muted small">
+        Erases every logged hour and every tap, and starts tracking again from now. Settings,
+        login and reminders are kept. Only shown on a laptop or desktop.
+      </p>
+
+      {step === 0 && (
+        <button type="button" className="btn danger" onClick={() => { setMsg(null); setStep(1); }}>
+          Reset all data…
+        </button>
+      )}
+
+      {step === 1 && (
+        <div className="reset-step">
+          <p><strong>Are you sure?</strong> This permanently deletes all movement history. It can&apos;t be undone.</p>
+          <div className="row-actions">
+            <button type="button" className="btn danger" onClick={() => setStep(2)}>
+              Yes, continue
+            </button>
+            <button type="button" className="btn" onClick={cancel}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 2 && (
+        <form
+          className="reset-step"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void eraseAll();
+          }}
+        >
+          <p>
+            <strong>Final check.</strong> A CSV backup will download first, then everything is erased.
+            Type <code>RESET</code> to confirm.
+          </p>
+          <input
+            className="input"
+            value={phrase}
+            onChange={(e) => setPhrase(e.target.value)}
+            placeholder="RESET"
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            aria-label="Type RESET to confirm"
+            autoFocus
+          />
+          <div className="row-actions">
+            <button type="submit" className="btn danger" disabled={busy || phrase !== "RESET"}>
+              {busy ? "Erasing…" : "Download backup and erase everything"}
+            </button>
+            <button type="button" className="btn" onClick={cancel} disabled={busy}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {msg && <p className={msg.ok ? "success" : "error"}>{msg.text}</p>}
     </section>
   );
 }
